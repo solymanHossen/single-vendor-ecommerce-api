@@ -1,0 +1,79 @@
+# Local dev / demo stack. `docker compose up -d postgres redis` alone is enough
+# if you'd rather run the app on the host with `npm run start:dev` for hot reload.
+#
+# DATABASE_URL/REDIS_URL in your .env point at "localhost" for that host-run case.
+# The `migrate` and `app` services below override those two vars to the in-network
+# service names ("postgres"/"redis") — containers can't reach each other via
+# localhost — everything else is still read from your .env via env_file.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+      POSTGRES_DB: nestjs_starter_kit
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app_user -d nestjs_starter_kit']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: syncs the Prisma schema before `app` starts, then exits.
+  # Uses the `build` stage (has the Prisma CLI + devDependencies) rather than
+  # the slim `runtime` image, which intentionally omits them.
+  migrate:
+    build:
+      context: .
+      target: build
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://app_user:app_password@postgres:5432/nestjs_starter_kit?schema=public
+    command: ['npx', 'prisma', 'db', 'push', '--accept-data-loss']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://app_user:app_password@postgres:5432/nestjs_starter_kit?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '${PORT:-3000}:${PORT:-3000}'
+    volumes:
+      - storage_data:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:
