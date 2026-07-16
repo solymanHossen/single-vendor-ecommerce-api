@@ -68,3 +68,54 @@ enum Role {
   ADMIN
   SUPER_ADMIN
 }
+
+model Category {
+  id        Int        @id @default(autoincrement())
+  name      String
+  slug      String     @unique
+  parentId  Int?       @map("parent_id")
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryHierarchy")
+  iconUrl   String?    @map("icon_url")
+  metaTitle String?    @map("meta_title")
+  metaDesc  String?    @map("meta_desc")
+  products  Product[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id            Int            @id @default(autoincrement())
+  categoryId    Int            @map("category_id")
+  category      Category       @relation(fields: [categoryId], references: [id])
+  name          String
+  slug          String         @unique
+  description   String         @db.Text
+  basePrice     Decimal        @map("base_price") @db.Decimal(12, 2)
+  discountPrice Decimal?       @map("discount_price") @db.Decimal(12, 2)
+  sku           String         @unique
+  stockQuantity Int            @default(0) @map("stock_quantity")
+  isPublished   Boolean        @default(false) @map("is_published")
+  metaTitle     String?        @map("meta_title")
+  metaDesc      String?        @map("meta_desc")
+  images        ProductImage[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@index([categoryId])
+  @@map("products")
+}
+
+model ProductImage {
+  id          Int     @id @default(autoincrement())
+  productId   Int     @map("product_id")
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url         String
+  isThumbnail Boolean @default(false) @map("is_thumbnail")
+
+  @@index([productId])
+  @@map("product_images")
+}
