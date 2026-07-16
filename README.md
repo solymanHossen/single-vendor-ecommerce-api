@@ -2,12 +2,12 @@
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
 
-<h1 align="center">NestJS Prisma Starter Kit</h1>
+<h1 align="center">Singlevendor Ecommerce App</h1>
 
 <p align="center">
-  A production-ready NestJS + Prisma + PostgreSQL backend starter, wired up with the
-  security, observability, and infrastructure plumbing that most projects end up
-  re-building from scratch.
+  A single-vendor e-commerce backend API, built on a production-ready
+  NestJS + Prisma + PostgreSQL foundation with the security, observability, and
+  infrastructure plumbing that most projects end up re-building from scratch.
 </p>
 
 ## Features

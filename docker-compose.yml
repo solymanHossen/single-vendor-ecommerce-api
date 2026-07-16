@@ -6,6 +6,8 @@
 # service names ("postgres"/"redis") — containers can't reach each other via
 # localhost — everything else is still read from your .env via env_file.
 
+name: singlevendor-ecommerce-app
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -15,7 +17,7 @@ services:
       POSTGRES_PASSWORD: app_password
       POSTGRES_DB: nestjs_starter_kit
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,7 +30,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '6380:6379'
     volumes:
       - redis_data:/data
     healthcheck:
