@@ -19,6 +19,9 @@ import { WishlistModule } from './wishlist/wishlist.module';
 import { OrdersModule } from './orders/orders.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { ReturnsModule } from './returns/returns.module';
+import { TicketsModule } from './tickets/tickets.module';
 import { MailModule } from './mail/mail.module';
 import { AppIdentityModule } from './common/config/app-identity.module';
 import { validateEnv } from './common/config/env.validation';
@@ -95,6 +98,9 @@ import {
     OrdersModule,
     CouponsModule,
     PaymentsModule,
+    ReviewsModule,
+    ReturnsModule,
+    TicketsModule,
   ],
   providers: [
     // ── Global validation pipe ────────────────────────────────────────────────

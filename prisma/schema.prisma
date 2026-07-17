@@ -26,6 +26,11 @@ model User {
   addresses           Address[]
   wishlists           Wishlist[]
   orders              Order[]
+  reviews             Review[]
+  reviewReplies       ReviewReply[]
+  returnRequests      ReturnRequest[]
+  tickets             Ticket[]
+  ticketMessages      TicketMessage[]
 
   @@map("users")
 }
@@ -142,6 +147,7 @@ model Product {
   variants      ProductVariant[]
   wishlists     Wishlist[]
   orderItems    OrderItem[]
+  reviews       Review[]
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
 
@@ -237,24 +243,27 @@ enum PaymentStatus {
 }
 
 model Order {
-  id              Int           @id @default(autoincrement())
-  userId          Int?          @map("user_id")
+  id              Int            @id @default(autoincrement())
+  userId          Int?           @map("user_id")
   // Orders are financial/legal records that must outlive the account that
   // placed them — unlike every other User relation above (which cascades),
   // deleting a user un-links their past orders instead of destroying them.
-  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  status          OrderStatus   @default(PENDING)
-  paymentStatus   PaymentStatus @default(UNPAID) @map("payment_status")
-  totalAmount     Decimal       @map("total_amount") @db.Decimal(12, 2)
-  discountAmount  Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  shippingFee     Decimal       @default(0) @map("shipping_fee") @db.Decimal(12, 2)
+  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status          OrderStatus    @default(PENDING)
+  paymentStatus   PaymentStatus  @default(UNPAID) @map("payment_status")
+  totalAmount     Decimal        @map("total_amount") @db.Decimal(12, 2)
+  discountAmount  Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  shippingFee     Decimal        @default(0) @map("shipping_fee") @db.Decimal(12, 2)
   // Frozen copy of the Address used at checkout — never a live FK, so
   // editing/deleting the source Address later can't rewrite history.
-  shippingAddress Json          @map("shipping_address")
+  shippingAddress Json           @map("shipping_address")
   items           OrderItem[]
   payment         Payment?
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  reviews         Review[]
+  returnRequest   ReturnRequest?
+  tickets         Ticket[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([status])
@@ -327,4 +336,135 @@ model Payment {
   createdAt     DateTime        @default(now()) @map("created_at")
 
   @@map("payments")
+}
+
+model Review {
+  id         Int           @id @default(autoincrement())
+  userId     Int           @map("user_id")
+  // Required, like Ticket.user below — the app's real account-removal
+  // mechanism is User.deletedAt (soft delete), so leaving this at the
+  // restrict-by-default posture (no onDelete override) never bites in
+  // practice, and a review authored by a specific customer only makes
+  // sense with that customer identified.
+  user       User          @relation(fields: [userId], references: [id])
+  productId  Int           @map("product_id")
+  // Cascades: a review is fundamentally about the product it reviews and
+  // has no purpose once that product is gone (mirrors ProductImage/Wishlist).
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderId    Int?          @map("order_id")
+  // Optional "verified purchase" reference — unlinked (not deleted) if the
+  // order is ever removed, since the review's content still stands on its own.
+  order      Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  rating     Int
+  comment    String?       @db.Text
+  isApproved Boolean       @default(false) @map("is_approved")
+  images     ReviewImage[]
+  reply      ReviewReply?
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  // One review per customer per product — resubmission is rejected (409)
+  // rather than silently allowing unlimited duplicate reviews.
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@index([orderId])
+  @@map("reviews")
+}
+
+model ReviewImage {
+  id       Int    @id @default(autoincrement())
+  reviewId Int    @map("review_id")
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  imageUrl String @map("image_url")
+
+  @@index([reviewId])
+  @@map("review_images")
+}
+
+model ReviewReply {
+  id        Int      @id @default(autoincrement())
+  reviewId  Int      @unique @map("review_id")
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  adminId   Int      @map("admin_id")
+  admin     User     @relation(fields: [adminId], references: [id])
+  replyText String   @map("reply_text") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([adminId])
+  @@map("review_replies")
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+model ReturnRequest {
+  id        Int          @id @default(autoincrement())
+  orderId   Int          @unique @map("order_id")
+  // Cascades: a return request is a subordinate record documenting a return
+  // FOR a specific order — no meaning without it (mirrors Payment → Order).
+  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId    Int          @map("user_id")
+  user      User         @relation(fields: [userId], references: [id])
+  reason    String       @db.Text
+  status    ReturnStatus @default(PENDING)
+  adminNote String?      @map("admin_note") @db.Text
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("return_requests")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Ticket {
+  id        Int             @id @default(autoincrement())
+  userId    Int             @map("user_id")
+  user      User            @relation(fields: [userId], references: [id])
+  orderId   Int?            @map("order_id")
+  order     Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subject   String
+  status    TicketStatus    @default(OPEN)
+  priority  TicketPriority  @default(MEDIUM)
+  messages  TicketMessage[]
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([orderId])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int      @map("ticket_id")
+  // Cascades: a message has no independent existence outside its ticket's thread.
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId  Int      @map("sender_id")
+  // Either the ticket's own owner (continuing the conversation) or a staff
+  // member (replying) — this app has no separate "system" sender concept.
+  sender    User     @relation(fields: [senderId], references: [id])
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ticketId])
+  @@index([senderId])
+  @@map("ticket_messages")
 }
