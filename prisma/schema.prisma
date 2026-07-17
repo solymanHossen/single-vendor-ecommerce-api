@@ -25,6 +25,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   addresses           Address[]
   wishlists           Wishlist[]
+  orders              Order[]
 
   @@map("users")
 }
@@ -140,6 +141,7 @@ model Product {
   images        ProductImage[]
   variants      ProductVariant[]
   wishlists     Wishlist[]
+  orderItems    OrderItem[]
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
 
@@ -193,6 +195,7 @@ model ProductVariant {
   stockQuantity Int             @default(0) @map("stock_quantity")
   imageUrl      String?         @map("image_url")
   options       VariantOption[]
+  orderItems    OrderItem[]
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
 
@@ -215,4 +218,64 @@ model VariantOption {
   @@index([variantId])
   @@index([attributeOptionId])
   @@map("variant_options")
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Order {
+  id              Int           @id @default(autoincrement())
+  userId          Int?          @map("user_id")
+  // Orders are financial/legal records that must outlive the account that
+  // placed them — unlike every other User relation above (which cascades),
+  // deleting a user un-links their past orders instead of destroying them.
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status          OrderStatus   @default(PENDING)
+  paymentStatus   PaymentStatus @default(UNPAID) @map("payment_status")
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(12, 2)
+  discountAmount  Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  shippingFee     Decimal       @default(0) @map("shipping_fee") @db.Decimal(12, 2)
+  // Frozen copy of the Address used at checkout — never a live FK, so
+  // editing/deleting the source Address later can't rewrite history.
+  shippingAddress Json          @map("shipping_address")
+  items           OrderItem[]
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        Int             @id @default(autoincrement())
+  orderId   Int             @map("order_id")
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId Int             @map("product_id")
+  product   Product         @relation(fields: [productId], references: [id])
+  variantId Int?            @map("variant_id")
+  // Historical reference only: unlike VariantOption→AttributeOption (restrict),
+  // a discontinued variant should not block its own deletion nor the order's
+  // integrity — the frozen unitPrice below already preserves what was paid.
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  quantity  Int
+  unitPrice Decimal         @map("unit_price") @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("order_items")
 }
