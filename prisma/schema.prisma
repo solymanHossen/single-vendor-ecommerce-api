@@ -10,6 +10,8 @@ model User {
   id                  Int                  @id @default(autoincrement())
   email               String               @unique
   name                String?
+  phone               String?
+  avatarUrl           String?              @map("avatar_url")
   password            String?
   role                Role                 @default(USER)
   isActive            Boolean              @default(true)
@@ -21,6 +23,7 @@ model User {
   updatedAt           DateTime             @updatedAt @map("updated_at")
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  addresses           Address[]
 
   @@map("users")
 }
@@ -53,6 +56,24 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("password_reset_tokens")
+}
+
+model Address {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addressLine1 String   @map("address_line1")
+  addressLine2 String?  @map("address_line2")
+  city         String
+  state        String
+  postalCode   String   @map("postal_code")
+  country      String
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("addresses")
 }
 
 model AppSetting {

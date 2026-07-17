@@ -12,6 +12,8 @@ import { CategoriesModule } from './categories/categories.module';
 import { ProductsModule } from './products/products.module';
 import { AttributesModule } from './attributes/attributes.module';
 import { ProductVariantsModule } from './product-variants/product-variants.module';
+import { UsersModule } from './users/users.module';
+import { AddressesModule } from './addresses/addresses.module';
 import { MailModule } from './mail/mail.module';
 import { AppIdentityModule } from './common/config/app-identity.module';
 import { validateEnv } from './common/config/env.validation';
@@ -74,6 +76,8 @@ import { AUTH_THROTTLE_KEY, GLOBAL_THROTTLE_KEY } from './common/constants/throt
     ProductsModule,
     AttributesModule,
     ProductVariantsModule,
+    UsersModule,
+    AddressesModule,
   ],
   providers: [
     // ── Global validation pipe ────────────────────────────────────────────────
