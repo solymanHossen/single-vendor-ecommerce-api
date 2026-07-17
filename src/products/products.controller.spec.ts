@@ -27,6 +27,7 @@ const sampleProduct = new ProductEntity({
   metaTitle: null,
   metaDesc: null,
   images: [],
+  variants: [],
   createdAt: new Date(),
   updatedAt: new Date(),
 });

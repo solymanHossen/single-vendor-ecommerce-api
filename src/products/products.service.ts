@@ -6,6 +6,10 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto, ProductSortField } from './dto/query-product.dto';
 import { CategorySummaryEntity } from '../categories/entities/category.entity';
 import {
+  ProductVariantSummaryEntity,
+  VariantAttributeOptionEntity,
+} from '../product-variants/entities/product-variant.entity';
+import {
   PaginatedProductsEntity,
   PaginationMetaEntity,
   ProductEntity,
@@ -29,6 +33,29 @@ const PRODUCT_SELECT = {
   updatedAt: true,
   category: { select: { id: true, name: true, slug: true, iconUrl: true } },
   images: { select: { id: true, url: true, isThumbnail: true }, orderBy: { isThumbnail: 'desc' } },
+  variants: {
+    select: {
+      id: true,
+      sku: true,
+      price: true,
+      stockQuantity: true,
+      imageUrl: true,
+      options: {
+        select: {
+          attributeOption: {
+            select: {
+              id: true,
+              value: true,
+              attributeId: true,
+              attribute: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { id: 'asc' },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.ProductSelect;
 
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
@@ -183,6 +210,25 @@ export class ProductsService {
       metaTitle: product.metaTitle,
       metaDesc: product.metaDesc,
       images: product.images.map((image) => new ProductImageEntity(image)),
+      variants: product.variants.map(
+        (variant) =>
+          new ProductVariantSummaryEntity({
+            id: variant.id,
+            sku: variant.sku,
+            price: variant.price,
+            stockQuantity: variant.stockQuantity,
+            imageUrl: variant.imageUrl,
+            options: variant.options.map(
+              (option) =>
+                new VariantAttributeOptionEntity({
+                  attributeOptionId: option.attributeOption.id,
+                  attributeId: option.attributeOption.attributeId,
+                  attributeName: option.attributeOption.attribute.name,
+                  value: option.attributeOption.value,
+                }),
+            ),
+          }),
+      ),
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
     });

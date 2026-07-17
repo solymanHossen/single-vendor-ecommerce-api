@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import type { Prisma } from '@prisma/client';
 import { CategorySummaryEntity } from '../../categories/entities/category.entity';
+import { ProductVariantSummaryEntity } from '../../product-variants/entities/product-variant.entity';
 
 export class ProductImageEntity {
   @ApiProperty({ example: 1 })
@@ -34,6 +35,7 @@ interface ProductEntityInput {
   metaTitle: string | null;
   metaDesc: string | null;
   images: ProductImageEntity[];
+  variants: ProductVariantSummaryEntity[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -90,6 +92,13 @@ export class ProductEntity {
   @ApiProperty({ type: () => ProductImageEntity, isArray: true })
   images: ProductImageEntity[];
 
+  @ApiProperty({
+    type: () => ProductVariantSummaryEntity,
+    isArray: true,
+    description: 'Purchasable variants of this product, each with its own stock quantity',
+  })
+  variants: ProductVariantSummaryEntity[];
+
   @ApiProperty()
   createdAt: Date;
 
@@ -111,6 +120,7 @@ export class ProductEntity {
     this.metaTitle = partial.metaTitle;
     this.metaDesc = partial.metaDesc;
     this.images = partial.images;
+    this.variants = partial.variants;
     this.createdAt = partial.createdAt;
     this.updatedAt = partial.updatedAt;
   }

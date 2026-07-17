@@ -39,6 +39,20 @@ const sampleRow = {
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   category: { id: 2, name: 'Phones', slug: 'phones', iconUrl: null },
   images: [{ id: 1, url: 'https://cdn.example.com/1.jpg', isThumbnail: true }],
+  variants: [
+    {
+      id: 201,
+      sku: 'IPH17PRO-256-RED',
+      price: 999,
+      stockQuantity: 12,
+      imageUrl: null,
+      options: [
+        {
+          attributeOption: { id: 10, value: 'Red', attributeId: 3, attribute: { name: 'Color' } },
+        },
+      ],
+    },
+  ],
 };
 
 describe('ProductsService', () => {
@@ -139,6 +153,13 @@ describe('ProductsService', () => {
       );
       expect(result.sku).toBe('IPH17PRO');
       expect(result.images).toHaveLength(1);
+      expect(result.variants).toHaveLength(1);
+      expect(result.variants[0]?.options[0]).toEqual({
+        attributeOptionId: 10,
+        attributeId: 3,
+        attributeName: 'Color',
+        value: 'Red',
+      });
     });
   });
 
