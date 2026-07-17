@@ -17,6 +17,8 @@ import { AddressesModule } from './addresses/addresses.module';
 import { CartsModule } from './carts/carts.module';
 import { WishlistModule } from './wishlist/wishlist.module';
 import { OrdersModule } from './orders/orders.module';
+import { CouponsModule } from './coupons/coupons.module';
+import { PaymentsModule } from './payments/payments.module';
 import { MailModule } from './mail/mail.module';
 import { AppIdentityModule } from './common/config/app-identity.module';
 import { validateEnv } from './common/config/env.validation';
@@ -29,7 +31,11 @@ import { StrictValidationPipe } from './common/pipes/strict-validation.pipe';
 import { LoggerModule } from './common/logger/logger.module';
 import { RedisModule } from './common/redis/redis.module';
 import { RedisService } from './common/redis/redis.service';
-import { AUTH_THROTTLE_KEY, GLOBAL_THROTTLE_KEY } from './common/constants/throttler.constants';
+import {
+  AUTH_THROTTLE_KEY,
+  CHECKOUT_THROTTLE_KEY,
+  GLOBAL_THROTTLE_KEY,
+} from './common/constants/throttler.constants';
 
 @Module({
   imports: [
@@ -40,9 +46,11 @@ import { AUTH_THROTTLE_KEY, GLOBAL_THROTTLE_KEY } from './common/constants/throt
     }),
 
     // ── Multi-tier rate limiting, backed by Redis ──────────────────────────────
-    // Tier 1 "global": 100 requests / 10-minute window — applied to all routes.
-    // Tier 2 "auth":   10 requests / 15-minute window — opt-in via @Throttle({ auth: { ... } })
-    //                  on sensitive endpoints (login, register, password-reset).
+    // Tier 1 "global":   100 requests / 10-minute window — applied to all routes.
+    // Tier 2 "auth":      10 requests / 15-minute window — opt-in via @Throttle({ auth: { ... } })
+    //                     on sensitive endpoints (login, register, password-reset).
+    // Tier 3 "checkout":  20 requests /  1-minute window — opt-in via @Throttle({ checkout: { ... } })
+    //                     on coupon validation and payment endpoints.
     // IMPORTANT — verified against the installed @nestjs/throttler@6.5.0
     // source and confirmed live against Redis via MONITOR: `ttl` and
     // `blockDuration` are in MILLISECONDS, not seconds. (The package's own
@@ -61,6 +69,7 @@ import { AUTH_THROTTLE_KEY, GLOBAL_THROTTLE_KEY } from './common/constants/throt
         throttlers: [
           { name: GLOBAL_THROTTLE_KEY, ttl: 600_000, limit: 100 },
           { name: AUTH_THROTTLE_KEY, ttl: 900_000, limit: 10 },
+          { name: CHECKOUT_THROTTLE_KEY, ttl: 60_000, limit: 20 },
         ],
         storage: new ThrottlerStorageRedisService(redisService.client),
       }),
@@ -84,6 +93,8 @@ import { AUTH_THROTTLE_KEY, GLOBAL_THROTTLE_KEY } from './common/constants/throt
     CartsModule,
     WishlistModule,
     OrdersModule,
+    CouponsModule,
+    PaymentsModule,
   ],
   providers: [
     // ── Global validation pipe ────────────────────────────────────────────────
