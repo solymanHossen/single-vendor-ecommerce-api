@@ -24,6 +24,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   addresses           Address[]
+  wishlists           Wishlist[]
 
   @@map("users")
 }
@@ -76,6 +77,20 @@ model Address {
   @@map("addresses")
 }
 
+model Wishlist {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId Int      @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("wishlists")
+}
+
 model AppSetting {
   id                Int     @id @default(1)
   allowRegistration Boolean @default(true) @map("allow_registration")
@@ -124,6 +139,7 @@ model Product {
   metaDesc      String?          @map("meta_desc")
   images        ProductImage[]
   variants      ProductVariant[]
+  wishlists     Wishlist[]
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
 
