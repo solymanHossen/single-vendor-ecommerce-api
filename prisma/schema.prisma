@@ -7,20 +7,30 @@ generator client {
 }
 
 model User {
-  id                  Int            @id @default(autoincrement())
-  email               String         @unique
+  id                  Int                  @id @default(autoincrement())
+  email               String               @unique
   name                String?
+  phone               String?
+  avatarUrl           String?              @map("avatar_url")
   password            String?
-  role                Role           @default(USER)
-  isActive            Boolean        @default(true)
-  googleId            String?        @unique @map("google_id")
-  failedLoginAttempts Int            @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime?      @map("locked_until")
-  deletedAt           DateTime?      @map("deleted_at")
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
+  role                Role                 @default(USER)
+  isActive            Boolean              @default(true)
+  googleId            String?              @unique @map("google_id")
+  failedLoginAttempts Int                  @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?            @map("locked_until")
+  deletedAt           DateTime?            @map("deleted_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  addresses           Address[]
+  wishlists           Wishlist[]
+  orders              Order[]
+  reviews             Review[]
+  reviewReplies       ReviewReply[]
+  returnRequests      ReturnRequest[]
+  tickets             Ticket[]
+  ticketMessages      TicketMessage[]
 
   @@map("users")
 }
@@ -55,6 +65,38 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
+model Address {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addressLine1 String   @map("address_line1")
+  addressLine2 String?  @map("address_line2")
+  city         String
+  state        String
+  postalCode   String   @map("postal_code")
+  country      String
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+model Wishlist {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId Int      @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("wishlists")
+}
+
 model AppSetting {
   id                Int     @id @default(1)
   allowRegistration Boolean @default(true) @map("allow_registration")
@@ -67,4 +109,362 @@ enum Role {
   USER
   ADMIN
   SUPER_ADMIN
+}
+
+model Category {
+  id        Int        @id @default(autoincrement())
+  name      String
+  slug      String     @unique
+  parentId  Int?       @map("parent_id")
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryHierarchy")
+  iconUrl   String?    @map("icon_url")
+  metaTitle String?    @map("meta_title")
+  metaDesc  String?    @map("meta_desc")
+  products  Product[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id            Int              @id @default(autoincrement())
+  categoryId    Int              @map("category_id")
+  category      Category         @relation(fields: [categoryId], references: [id])
+  name          String
+  slug          String           @unique
+  description   String           @db.Text
+  basePrice     Decimal          @map("base_price") @db.Decimal(12, 2)
+  discountPrice Decimal?         @map("discount_price") @db.Decimal(12, 2)
+  sku           String           @unique
+  stockQuantity Int              @default(0) @map("stock_quantity")
+  isPublished   Boolean          @default(false) @map("is_published")
+  metaTitle     String?          @map("meta_title")
+  metaDesc      String?          @map("meta_desc")
+  images        ProductImage[]
+  variants      ProductVariant[]
+  wishlists     Wishlist[]
+  orderItems    OrderItem[]
+  reviews       Review[]
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  @@index([categoryId])
+  @@map("products")
+}
+
+model ProductImage {
+  id          Int     @id @default(autoincrement())
+  productId   Int     @map("product_id")
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url         String
+  isThumbnail Boolean @default(false) @map("is_thumbnail")
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model Attribute {
+  id        Int               @id @default(autoincrement())
+  name      String
+  options   AttributeOption[]
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  @@map("attributes")
+}
+
+model AttributeOption {
+  id             Int             @id @default(autoincrement())
+  attributeId    Int             @map("attribute_id")
+  // Options are owned by their attribute — deleting the attribute cascades
+  // to its options (mirrors Product → ProductImage ownership).
+  attribute      Attribute       @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value          String
+  variantOptions VariantOption[]
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  @@unique([attributeId, value])
+  @@index([attributeId])
+  @@map("attribute_options")
+}
+
+model ProductVariant {
+  id            Int             @id @default(autoincrement())
+  productId     Int             @map("product_id")
+  product       Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku           String          @unique
+  price         Decimal         @db.Decimal(12, 2)
+  stockQuantity Int             @default(0) @map("stock_quantity")
+  imageUrl      String?         @map("image_url")
+  options       VariantOption[]
+  orderItems    OrderItem[]
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model VariantOption {
+  id                Int             @id @default(autoincrement())
+  variantId         Int             @map("variant_id")
+  variant           ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  attributeOptionId Int             @map("attribute_option_id")
+  // No cascade here: AttributeOption is shared reference data, not owned by
+  // a single variant. Deleting an option still in use must fail at the
+  // database level (P2003 → 422), same restrict-by-default posture as
+  // Category being referenced by Product.
+  attributeOption   AttributeOption @relation(fields: [attributeOptionId], references: [id])
+
+  @@unique([variantId, attributeOptionId])
+  @@index([variantId])
+  @@index([attributeOptionId])
+  @@map("variant_options")
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Order {
+  id              Int            @id @default(autoincrement())
+  userId          Int?           @map("user_id")
+  // Orders are financial/legal records that must outlive the account that
+  // placed them — unlike every other User relation above (which cascades),
+  // deleting a user un-links their past orders instead of destroying them.
+  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status          OrderStatus    @default(PENDING)
+  paymentStatus   PaymentStatus  @default(UNPAID) @map("payment_status")
+  totalAmount     Decimal        @map("total_amount") @db.Decimal(12, 2)
+  discountAmount  Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  shippingFee     Decimal        @default(0) @map("shipping_fee") @db.Decimal(12, 2)
+  // Frozen copy of the Address used at checkout — never a live FK, so
+  // editing/deleting the source Address later can't rewrite history.
+  shippingAddress Json           @map("shipping_address")
+  items           OrderItem[]
+  payment         Payment?
+  reviews         Review[]
+  returnRequest   ReturnRequest?
+  tickets         Ticket[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        Int             @id @default(autoincrement())
+  orderId   Int             @map("order_id")
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId Int             @map("product_id")
+  product   Product         @relation(fields: [productId], references: [id])
+  variantId Int?            @map("variant_id")
+  // Historical reference only: unlike VariantOption→AttributeOption (restrict),
+  // a discontinued variant should not block its own deletion nor the order's
+  // integrity — the frozen unitPrice below already preserves what was paid.
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  quantity  Int
+  unitPrice Decimal         @map("unit_price") @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("order_items")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model Coupon {
+  id                Int          @id @default(autoincrement())
+  code              String       @unique
+  discountType      DiscountType @map("discount_type")
+  discountValue     Decimal      @map("discount_value") @db.Decimal(12, 2)
+  minOrderAmount    Decimal?     @map("min_order_amount") @db.Decimal(12, 2)
+  maxDiscountAmount Decimal?     @map("max_discount_amount") @db.Decimal(12, 2)
+  usageLimit        Int?         @map("usage_limit")
+  usedCount         Int          @default(0) @map("used_count")
+  validFrom         DateTime     @map("valid_from")
+  validUntil        DateTime     @map("valid_until")
+  isActive          Boolean      @default(true) @map("is_active")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  @@map("coupons")
+}
+
+enum PaymentProvider {
+  STRIPE
+  SSLCOMMERZ
+  BKASH
+  COD
+}
+
+model Payment {
+  id            Int             @id @default(autoincrement())
+  orderId       Int             @unique @map("order_id")
+  // Payment is owned by its Order — no independent lifecycle, so it cascades
+  // (unlike Order → User above, which deliberately does not).
+  order         Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider      PaymentProvider
+  transactionId String?         @unique @map("transaction_id")
+  amount        Decimal         @db.Decimal(12, 2)
+  // schema.md's ERD notes list this field's default as PENDING, but its own
+  // PaymentStatus enum has no such member — UNPAID is that enum's actual
+  // initial state, and matches Order.paymentStatus's default above.
+  status        PaymentStatus   @default(UNPAID)
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  @@map("payments")
+}
+
+model Review {
+  id         Int           @id @default(autoincrement())
+  userId     Int           @map("user_id")
+  // Required, like Ticket.user below — the app's real account-removal
+  // mechanism is User.deletedAt (soft delete), so leaving this at the
+  // restrict-by-default posture (no onDelete override) never bites in
+  // practice, and a review authored by a specific customer only makes
+  // sense with that customer identified.
+  user       User          @relation(fields: [userId], references: [id])
+  productId  Int           @map("product_id")
+  // Cascades: a review is fundamentally about the product it reviews and
+  // has no purpose once that product is gone (mirrors ProductImage/Wishlist).
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderId    Int?          @map("order_id")
+  // Optional "verified purchase" reference — unlinked (not deleted) if the
+  // order is ever removed, since the review's content still stands on its own.
+  order      Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  rating     Int
+  comment    String?       @db.Text
+  isApproved Boolean       @default(false) @map("is_approved")
+  images     ReviewImage[]
+  reply      ReviewReply?
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  // One review per customer per product — resubmission is rejected (409)
+  // rather than silently allowing unlimited duplicate reviews.
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@index([orderId])
+  @@map("reviews")
+}
+
+model ReviewImage {
+  id       Int    @id @default(autoincrement())
+  reviewId Int    @map("review_id")
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  imageUrl String @map("image_url")
+
+  @@index([reviewId])
+  @@map("review_images")
+}
+
+model ReviewReply {
+  id        Int      @id @default(autoincrement())
+  reviewId  Int      @unique @map("review_id")
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  adminId   Int      @map("admin_id")
+  admin     User     @relation(fields: [adminId], references: [id])
+  replyText String   @map("reply_text") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([adminId])
+  @@map("review_replies")
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+model ReturnRequest {
+  id        Int          @id @default(autoincrement())
+  orderId   Int          @unique @map("order_id")
+  // Cascades: a return request is a subordinate record documenting a return
+  // FOR a specific order — no meaning without it (mirrors Payment → Order).
+  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId    Int          @map("user_id")
+  user      User         @relation(fields: [userId], references: [id])
+  reason    String       @db.Text
+  status    ReturnStatus @default(PENDING)
+  adminNote String?      @map("admin_note") @db.Text
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("return_requests")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Ticket {
+  id        Int             @id @default(autoincrement())
+  userId    Int             @map("user_id")
+  user      User            @relation(fields: [userId], references: [id])
+  orderId   Int?            @map("order_id")
+  order     Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subject   String
+  status    TicketStatus    @default(OPEN)
+  priority  TicketPriority  @default(MEDIUM)
+  messages  TicketMessage[]
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([orderId])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int      @map("ticket_id")
+  // Cascades: a message has no independent existence outside its ticket's thread.
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId  Int      @map("sender_id")
+  // Either the ticket's own owner (continuing the conversation) or a staff
+  // member (replying) — this app has no separate "system" sender concept.
+  sender    User     @relation(fields: [senderId], references: [id])
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ticketId])
+  @@index([senderId])
+  @@map("ticket_messages")
 }
