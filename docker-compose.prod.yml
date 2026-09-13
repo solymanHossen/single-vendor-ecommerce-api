@@ -1,0 +1,114 @@
+# Production overlay — layer on top of the base stack:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Adds: an Nginx edge (TLS termination, gzip, rate limiting, load-balances
+# across scaled `app` replicas), horizontal scaling for `app`, and a
+# scheduled Postgres backup sidecar. The base file's security posture
+# (internal data-tier network, no exposed DB/cache ports, resource limits,
+# healthchecks) already applies — this file does not relax any of it.
+#
+# Required additional .env vars: see .env.example's "Docker Compose /
+# Infrastructure" section — NGINX_HTTP_PORT, NGINX_HTTPS_PORT, APP_REPLICAS,
+# BACKUP_KEEP_DAYS/WEEKS/MONTHS. TLS certs go in ./nginx/certs/
+# (fullchain.pem + privkey.pem) — see nginx/certs/README.md.
+
+services:
+  app:
+    # No host port here (base doesn't publish one either — see
+    # docker-compose.yml) — Nginx is the only public entry point, and is the
+    # only sensible one once `app` is scaled to multiple replicas.
+    expose:
+      - '${PORT:-3000}'
+    deploy:
+      replicas: ${APP_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    ports:
+      - '${NGINX_HTTP_PORT:-80}:80'
+      - '${NGINX_HTTPS_PORT:-443}:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - nginx_cache:/var/cache/nginx
+    environment:
+      APP_UPSTREAM_PORT: ${PORT:-3000}
+    networks:
+      - app-tier
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1/healthz']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  # Scheduled logical backups (pg_dump) with automatic rotation. For large
+  # databases or point-in-time recovery, replace/augment with WAL-G or
+  # pgBackRest — this covers the common "nightly dump, keep N days" case.
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:17-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-nestjs_starter_kit}
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in .env}
+      SCHEDULE: '${BACKUP_SCHEDULE:-@daily}'
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ./backups:/backups
+    networks:
+      - data-tier
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  nginx_cache:

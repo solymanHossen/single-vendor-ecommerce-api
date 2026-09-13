@@ -30,6 +30,13 @@ ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
 
+# Pre-create with app:app ownership so a fresh named volume mounted here at
+# runtime inherits it (Docker seeds a brand-new volume's content/perms from
+# whatever already exists at the mount path in the image) — otherwise the
+# volume mounts in as root:root and the non-root `app` user below can't
+# write uploaded files to it.
+RUN mkdir -p /app/storage && chown app:app /app/storage
+
 COPY --from=prod-deps /app/node_modules ./node_modules
 # Prisma's generated client lives under node_modules/.prisma — separate from
 # the @prisma/client package installed above — and must match schema.prisma.

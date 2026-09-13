@@ -60,3 +60,10 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Local storage provider's default upload destination (LOCAL_STORAGE_DEST) —
 # user-uploaded files must never be committed to source control.
 /storage
+
+# TLS private keys/certs for the Nginx prod overlay — never commit these.
+/nginx/certs/*
+!/nginx/certs/README.md
+
+# Postgres backup dumps produced by the prod overlay's backup sidecar.
+/backups

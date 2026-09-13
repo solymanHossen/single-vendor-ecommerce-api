@@ -1,72 +1,179 @@
-# Local dev / demo stack. `docker compose up -d postgres redis` alone is enough
-# if you'd rather run the app on the host with `npm run start:dev` for hot reload.
+# Enterprise-grade base stack — secure, production-safe defaults.
 #
-# DATABASE_URL/REDIS_URL in your .env point at "localhost" for that host-run case.
-# The `migrate` and `app` services below override those two vars to the in-network
-# service names ("postgres"/"redis") — containers can't reach each other via
-# localhost — everything else is still read from your .env via env_file.
+# This file alone is deployable as-is: Postgres/Redis are NOT exposed to the
+# host, both live on an `internal: true` network unreachable from outside the
+# Docker host, and every service carries resource limits, log rotation, and a
+# real healthcheck. Local convenience (host ports for psql/redis-cli, etc.)
+# lives in docker-compose.override.yml, which `docker compose up` merges in
+# automatically — nothing extra to type for local dev. For production, layer
+# docker-compose.prod.yml on top:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Required secrets (fail fast with a clear error if unset — see .env.example):
+#   POSTGRES_PASSWORD, REDIS_PASSWORD
+#
+# DATABASE_URL/REDIS_URL in your .env point at "localhost" for the host-run
+# case (`npm run start:dev`). The `migrate` and `app` services below override
+# those two vars to the in-network service names ("postgres"/"redis") —
+# containers can't reach each other via localhost — everything else is still
+# read from your .env via env_file.
 
 name: singlevendor-ecommerce-app
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+networks:
+  data-tier:
+    driver: bridge
+    internal: true
+  app-tier:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:
 
 services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
-      POSTGRES_USER: app_user
-      POSTGRES_PASSWORD: app_password
-      POSTGRES_DB: nestjs_starter_kit
-    ports:
-      - '5433:5432'
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-nestjs_starter_kit}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    # Layers `-c` overrides on top of the image's default postgresql.conf —
+    # safer than mounting a full custom conf, which would need to be kept in
+    # sync with every Postgres version bump. Tune via .env, no image rebuild.
+    command:
+      - postgres
+      - -c
+      - max_connections=${DB_MAX_CONNECTIONS:-100}
+      - -c
+      - shared_buffers=${DB_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${DB_EFFECTIVE_CACHE_SIZE:-768MB}
+      - -c
+      - work_mem=${DB_WORK_MEM:-4MB}
+      - -c
+      - maintenance_work_mem=${DB_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=250
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data-tier
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U app_user -d nestjs_starter_kit']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-nestjs_starter_kit}']
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging: *default-logging
 
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    ports:
-      - '6380:6379'
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required — set it in .env}
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required — set it in .env}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_MAXMEMORY:-256mb}
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
     volumes:
       - redis_data:/data
+    networks:
+      - data-tier
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 384M
+        reservations:
+          memory: 128M
+    logging: *default-logging
 
   # One-shot: syncs the Prisma schema before `app` starts, then exits.
   # Uses the `build` stage (has the Prisma CLI + devDependencies) rather than
   # the slim `runtime` image, which intentionally omits them.
+  #
+  # Intentionally NOT passed --accept-data-loss: if Prisma detects a
+  # destructive change (e.g. a dropped/narrowed column), this fails the
+  # deploy loudly instead of silently discarding production data. Review and
+  # apply destructive schema changes manually.
   migrate:
     build:
       context: .
       target: build
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://app_user:app_password@postgres:5432/nestjs_starter_kit?schema=public
-    command: ['npx', 'prisma', 'db', 'push', '--accept-data-loss']
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nestjs_starter_kit}?schema=public
+    command: ['npx', 'prisma', 'db', 'push']
+    networks:
+      - data-tier
     depends_on:
       postgres:
         condition: service_healthy
+    logging: *default-logging
 
   app:
     build:
       context: .
       target: runtime
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://app_user:app_password@postgres:5432/nestjs_starter_kit?schema=public
-      REDIS_URL: redis://redis:6379
-    ports:
-      - '${PORT:-3000}:${PORT:-3000}'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nestjs_starter_kit}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    # No host port published here on purpose: Compose merges `ports:` across
+    # -f files by appending, not replacing, so a base-level mapping can't be
+    # cleanly removed by a prod overlay (and would conflict once `app` is
+    # scaled to multiple replicas anyway). Local dev gets its port mapping
+    # from docker-compose.override.yml; production reaches `app` only
+    # through the nginx overlay.
     volumes:
       - storage_data:/app/storage
+    networks:
+      - data-tier
+      - app-tier
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,8 +181,28 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-
-volumes:
-  postgres_data:
-  redis_data:
-  storage_data:
+    # Overrides the image's baked-in HEALTHCHECK (which only hits /live) to
+    # hit /ready instead, so `service_healthy` reflects true DB+Redis
+    # readiness — this is what any downstream `depends_on` (e.g. nginx in the
+    # prod overlay) should actually wait on.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get({host:'127.0.0.1',port:process.env.PORT||3000,path:'/api/v1/health/ready'},(res)=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging: *default-logging
