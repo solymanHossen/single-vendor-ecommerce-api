@@ -1,0 +1,36 @@
+# Local-dev convenience overrides — auto-merged by `docker compose up` when
+# this file sits next to docker-compose.yml (no -f flag needed). NOT used in
+# production: the prod deploy command explicitly targets
+# docker-compose.yml + docker-compose.prod.yml only, so this file is skipped.
+#
+# Adds back host-port access to Postgres/Redis for local psql/redis-cli/GUI
+# clients, and relaxes the app container's read-only root filesystem so you
+# can `docker compose exec app sh` around freely while iterating.
+#
+# `data-tier` is `internal: true` in the base file, which makes Docker skip
+# publishing ANY host port for containers on it — a published port then
+# silently does nothing (no bind, no error). Un-setting `internal` here is
+# what actually makes the ports below reachable; production never loads
+# this file, so the base network stays locked down there.
+networks:
+  data-tier:
+    internal: false
+
+services:
+  postgres:
+    ports:
+      - '${POSTGRES_PORT:-5433}:5432'
+
+  redis:
+    ports:
+      - '${REDIS_PORT:-6380}:6379'
+
+  app:
+    read_only: false
+    ports:
+      - '${PORT:-3000}:${PORT:-3000}'
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
