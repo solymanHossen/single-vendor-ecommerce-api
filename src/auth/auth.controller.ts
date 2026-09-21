@@ -62,7 +62,7 @@ export class AuthController {
 
   @Post('login')
   @Public()
-  @Throttle({ [AUTH_THROTTLE_KEY]: { limit: 10, ttl: 900_000 } })
+  @Throttle({ [AUTH_THROTTLE_KEY]: { limit: 1000, ttl: 900_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiBody({

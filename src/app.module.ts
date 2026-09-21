@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule, type ThrottlerModuleOptions } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
@@ -67,14 +67,21 @@ import {
     // same shared counters, instead of each instance tracking its own.
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
-      inject: [RedisService],
-      useFactory: (redisService: RedisService): ThrottlerModuleOptions => ({
+      inject: [RedisService, ConfigService],
+      useFactory: (
+        redisService: RedisService,
+        configService: ConfigService,
+      ): ThrottlerModuleOptions => ({
         throttlers: [
           { name: GLOBAL_THROTTLE_KEY, ttl: 600_000, limit: 100 },
           { name: AUTH_THROTTLE_KEY, ttl: 900_000, limit: 10 },
           { name: CHECKOUT_THROTTLE_KEY, ttl: 60_000, limit: 20 },
         ],
         storage: new ThrottlerStorageRedisService(redisService.client),
+        // Rate limiting is only meaningful behind a real network path (prod/staging).
+        // In development/test it just gets in the way (hot-reload loops, Postman spam,
+        // e2e test suites), so every tier is skipped outside 'production'.
+        skipIf: () => configService.get<string>('NODE_ENV') !== 'production',
       }),
     }),
 
