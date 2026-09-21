@@ -18,10 +18,14 @@ networks:
 
 services:
   postgres:
+    security_opt:
+      - no-new-privileges:false
     ports:
       - '${POSTGRES_PORT:-5433}:5432'
 
   redis:
+    security_opt:
+      - no-new-privileges:false
     ports:
       - '${REDIS_PORT:-6380}:6379'
 
