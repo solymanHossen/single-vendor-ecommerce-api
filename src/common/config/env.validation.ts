@@ -102,7 +102,7 @@ export const envSchema = z
     JWT_ACCESS_EXPIRES_IN: z
       .string()
       .regex(/^\d+[smhd]$/, 'JWT_ACCESS_EXPIRES_IN must match pattern: <number><s|m|h|d>')
-      .default('15m'),
+      .default('30d'),
     JWT_REFRESH_EXPIRES_IN: z
       .string()
       .regex(/^\d+[smhd]$/, 'JWT_REFRESH_EXPIRES_IN must match pattern: <number><s|m|h|d>')
