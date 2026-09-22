@@ -105,6 +105,30 @@ model AppSetting {
   @@map("app_settings")
 }
 
+enum HeroBannerPlacement {
+  MAIN
+  SIDE
+}
+
+model HeroBanner {
+  id        Int                 @id @default(autoincrement())
+  placement HeroBannerPlacement
+  title     String
+  href      String
+  // Rendered URL (backend's own /storage/stream/... link) and the storage
+  // object key behind it — the key is kept so a replace/delete can clean up
+  // the old file via StorageService.remove() instead of orphaning it.
+  imageUrl  String              @map("image_url")
+  imageKey  String              @map("image_key")
+  sortOrder Int                 @default(0) @map("sort_order")
+  isActive  Boolean             @default(true) @map("is_active")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  @@index([placement, isActive, sortOrder])
+  @@map("hero_banners")
+}
+
 enum Role {
   USER
   ADMIN

@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { StorageModule } from './storage/storage.module';
 import { SettingsModule } from './settings/settings.module';
+import { HeroBannersModule } from './hero-banners/hero-banners.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ProductsModule } from './products/products.module';
 import { AttributesModule } from './attributes/attributes.module';
@@ -94,6 +95,7 @@ import {
     AuthModule,
     StorageModule,
     SettingsModule,
+    HeroBannersModule,
     CategoriesModule,
     ProductsModule,
     AttributesModule,

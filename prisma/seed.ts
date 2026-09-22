@@ -4,6 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { UserSeeder } from './seeders/user.seeder';
 import { AppSettingSeeder } from './seeders/app-setting.seeder';
+import { HeroBannerSeeder } from './seeders/hero-banner.seeder';
 import type { Seeder } from './seeders/seeder.interface';
 
 // ── Environment guard (deny-by-default) ───────────────────────────────────────
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
   // Register seeders, then sort by their declared `order` so that dependency
   // order is respected regardless of array registration sequence.
   // Seeders without an `order` value are sorted to the end.
-  const seeders: Seeder[] = [new UserSeeder(), new AppSettingSeeder()];
+  const seeders: Seeder[] = [new UserSeeder(), new AppSettingSeeder(), new HeroBannerSeeder()];
   seeders.sort(
     (a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER),
   );
