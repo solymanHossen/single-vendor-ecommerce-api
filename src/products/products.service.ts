@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -97,9 +97,13 @@ export class ProductsService {
     });
   }
 
-  async findOne(id: number): Promise<ProductEntity> {
-    const product = await this.prisma.product.findUniqueOrThrow({
-      where: { id },
+  /**
+   * `publishedOnly` is set by the public route so a draft 404s for shoppers
+   * exactly like a product that doesn't exist; the admin route omits it.
+   */
+  async findOne(id: number, options: { publishedOnly?: boolean } = {}): Promise<ProductEntity> {
+    const product = await this.prisma.product.findFirstOrThrow({
+      where: options.publishedOnly ? { id, isPublished: true } : { id },
       select: PRODUCT_SELECT,
     });
 
@@ -121,6 +125,18 @@ export class ProductsService {
   async update(id: number, dto: UpdateProductDto): Promise<ProductEntity> {
     const { images, ...scalarData } = dto;
 
+    // A product with variants derives its stock from them (kept in sync by
+    // ProductVariantsService), so a direct write would be overwritten on the
+    // next variant change — refuse it instead of silently losing the value.
+    if (scalarData.stockQuantity !== undefined) {
+      const variantCount = await this.prisma.productVariant.count({ where: { productId: id } });
+      if (variantCount > 0) {
+        throw new BadRequestException(
+          'Stock is managed per variant for this product — update the variants instead',
+        );
+      }
+    }
+
     const product = await this.prisma.product.update({
       where: { id },
       // Nested write executed as a single Prisma call: replaces the
@@ -137,6 +153,16 @@ export class ProductsService {
   }
 
   async remove(id: number): Promise<void> {
+    // OrderItem.productId is a RESTRICT foreign key (order history must keep
+    // pointing at a real product). Checking first turns what would be a
+    // generic FK failure into an actionable message.
+    const orderLines = await this.prisma.orderItem.count({ where: { productId: id } });
+    if (orderLines > 0) {
+      throw new ConflictException(
+        `This product appears in ${orderLines} order ${orderLines === 1 ? 'line' : 'lines'} and can't be deleted. Unpublish it instead.`,
+      );
+    }
+
     // ProductImage.productId cascades on delete at the database level, so
     // removing a product cleans up its images without a manual loop.
     await this.prisma.product.delete({ where: { id } });

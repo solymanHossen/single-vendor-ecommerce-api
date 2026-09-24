@@ -66,13 +66,19 @@ export class ProductVariantsService {
     // assignments, so a reference to a product or attribute option that
     // doesn't exist fails the FK constraint at the database level (P2003 →
     // 422) rather than needing manual existence checks here.
-    const variant = await this.prisma.productVariant.create({
-      data: {
-        ...scalarData,
-        productId,
-        options: { create: attributeOptionIds.map((attributeOptionId) => ({ attributeOptionId })) },
-      },
-      select: PRODUCT_VARIANT_SELECT,
+    const variant = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.productVariant.create({
+        data: {
+          ...scalarData,
+          productId,
+          options: {
+            create: attributeOptionIds.map((attributeOptionId) => ({ attributeOptionId })),
+          },
+        },
+        select: PRODUCT_VARIANT_SELECT,
+      });
+      await this.syncProductStock(tx, productId);
+      return created;
     });
 
     return this.toEntity(variant);
@@ -84,19 +90,25 @@ export class ProductVariantsService {
     // Safe to fully replace the option set (deleteMany + create) here, unlike
     // AttributeOption: nothing else references a VariantOption row, so
     // regenerating its ids on update has no downstream impact.
-    const variant = await this.prisma.productVariant.update({
-      where: { id },
-      data:
-        attributeOptionIds !== undefined
-          ? {
-              ...scalarData,
-              options: {
-                deleteMany: {},
-                create: attributeOptionIds.map((attributeOptionId) => ({ attributeOptionId })),
-              },
-            }
-          : scalarData,
-      select: PRODUCT_VARIANT_SELECT,
+    const variant = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.productVariant.update({
+        where: { id },
+        data:
+          attributeOptionIds !== undefined
+            ? {
+                ...scalarData,
+                options: {
+                  deleteMany: {},
+                  create: attributeOptionIds.map((attributeOptionId) => ({ attributeOptionId })),
+                },
+              }
+            : scalarData,
+        select: PRODUCT_VARIANT_SELECT,
+      });
+      if (scalarData.stockQuantity !== undefined) {
+        await this.syncProductStock(tx, updated.productId);
+      }
+      return updated;
     });
 
     return this.toEntity(variant);
@@ -105,7 +117,30 @@ export class ProductVariantsService {
   async remove(id: number): Promise<void> {
     // VariantOption.variantId cascades on delete, so removing a variant
     // cleans up its option links without a manual loop.
-    await this.prisma.productVariant.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      const { productId } = await tx.productVariant.delete({
+        where: { id },
+        select: { productId: true },
+      });
+      await this.syncProductStock(tx, productId);
+    });
+  }
+
+  /**
+   * A product with variants sells only through them, so its own stock is
+   * the sum of theirs. Recomputed inside the same transaction as the write
+   * so the catalogue, stock filters and dashboard never disagree.
+   */
+  private async syncProductStock(tx: Prisma.TransactionClient, productId: number): Promise<void> {
+    const { _sum } = await tx.productVariant.aggregate({
+      where: { productId },
+      _sum: { stockQuantity: true },
+    });
+    await tx.product.update({
+      where: { id: productId },
+      data: { stockQuantity: _sum.stockQuantity ?? 0 },
+      select: { id: true },
+    });
   }
 
   private toEntity(variant: ProductVariantRow): ProductVariantEntity {

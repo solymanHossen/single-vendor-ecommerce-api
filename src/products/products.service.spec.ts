@@ -1,3 +1,4 @@
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ProductsService } from './products.service';
 import { PrismaService } from '../database/prisma.service';
@@ -7,11 +8,13 @@ const mockPrisma = {
   product: {
     findMany: jest.fn(),
     count: jest.fn(),
-    findUniqueOrThrow: jest.fn(),
+    findFirstOrThrow: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
   },
+  productVariant: { count: jest.fn() },
+  orderItem: { count: jest.fn() },
   $transaction: jest.fn(),
 };
 
@@ -145,11 +148,11 @@ describe('ProductsService', () => {
 
   describe('findOne()', () => {
     it('maps the Prisma row into a ProductEntity', async () => {
-      mockPrisma.product.findUniqueOrThrow.mockResolvedValueOnce(sampleRow);
+      mockPrisma.product.findFirstOrThrow.mockResolvedValueOnce(sampleRow);
 
       const result = await service.findOne(1);
 
-      expect(mockPrisma.product.findUniqueOrThrow).toHaveBeenCalledWith(
+      expect(mockPrisma.product.findFirstOrThrow).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 1 } }),
       );
       expect(result.sku).toBe('IPH17PRO');
@@ -209,7 +212,48 @@ describe('ProductsService', () => {
     });
   });
 
+  describe('findOne() with publishedOnly', () => {
+    it('restricts the lookup to published products so drafts 404', async () => {
+      mockPrisma.product.findFirstOrThrow.mockResolvedValueOnce(sampleRow);
+
+      await service.findOne(1, { publishedOnly: true });
+
+      expect(mockPrisma.product.findFirstOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 1, isPublished: true } }),
+      );
+    });
+  });
+
   describe('update()', () => {
+    it('rejects a direct stock write when the product has variants', async () => {
+      mockPrisma.productVariant.count.mockResolvedValueOnce(3);
+
+      await expect(service.update(1, { stockQuantity: 9 })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(mockPrisma.product.update).not.toHaveBeenCalled();
+    });
+
+    it('allows a stock write when the product has no variants', async () => {
+      mockPrisma.productVariant.count.mockResolvedValueOnce(0);
+      mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
+
+      await service.update(1, { stockQuantity: 9 });
+
+      expect(mockPrisma.productVariant.count).toHaveBeenCalledWith({ where: { productId: 1 } });
+      expect(mockPrisma.product.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { stockQuantity: 9 } }),
+      );
+    });
+
+    it('skips the variant check when stock is not being changed', async () => {
+      mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
+
+      await service.update(1, { name: 'Renamed' });
+
+      expect(mockPrisma.productVariant.count).not.toHaveBeenCalled();
+    });
+
     it('replaces the image set with deleteMany + create when images are provided', async () => {
       mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
 
@@ -240,12 +284,25 @@ describe('ProductsService', () => {
   });
 
   describe('remove()', () => {
-    it('deletes the product by id', async () => {
+    it('deletes the product by id when it has no order history', async () => {
+      mockPrisma.orderItem.count.mockResolvedValueOnce(0);
       mockPrisma.product.delete.mockResolvedValueOnce(sampleRow);
 
       await service.remove(1);
 
+      expect(mockPrisma.orderItem.count).toHaveBeenCalledWith({ where: { productId: 1 } });
       expect(mockPrisma.product.delete).toHaveBeenCalledWith({ where: { id: 1 } });
+    });
+
+    it('refuses with a 409 that suggests unpublishing when orders reference it', async () => {
+      mockPrisma.orderItem.count.mockResolvedValueOnce(4);
+
+      await expect(service.remove(1)).rejects.toThrow(
+        new ConflictException(
+          "This product appears in 4 order lines and can't be deleted. Unpublish it instead.",
+        ),
+      );
+      expect(mockPrisma.product.delete).not.toHaveBeenCalled();
     });
   });
 });

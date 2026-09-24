@@ -40,7 +40,10 @@ export class ProductsController {
 
   @Get()
   @Public()
-  @ApiOperation({ summary: 'List products with filtering, sorting, and pagination' })
+  @ApiOperation({
+    summary: 'List published products with filtering, sorting, and pagination',
+    description: 'Drafts are never returned here; admins use GET /admin/products.',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @ApiQuery({
@@ -60,20 +63,22 @@ export class ProductsController {
   async findAll(
     @Query(new ZodValidationPipe(ProductQuerySchema)) query: ProductQueryDto,
   ): Promise<{ message: string; data: PaginatedProductsEntity }> {
-    const result = await this.productsService.findAll(query);
+    // Forced, not defaulted: a shopper passing isPublished=false must not
+    // be able to enumerate drafts.
+    const result = await this.productsService.findAll({ ...query, isPublished: true });
     return { message: 'Products retrieved successfully', data: result };
   }
 
   @Get(':id')
   @Public()
-  @ApiOperation({ summary: 'Retrieve a single product with its category and images' })
+  @ApiOperation({ summary: 'Retrieve a single published product with its category and images' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, type: ProductEntity })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Product does not exist' })
   async findOne(
     @Param('id', ParseIntPipe) id: number,
   ): Promise<{ message: string; data: ProductEntity }> {
-    const product = await this.productsService.findOne(id);
+    const product = await this.productsService.findOne(id, { publishedOnly: true });
     return { message: 'Product retrieved successfully', data: product };
   }
 
@@ -107,6 +112,10 @@ export class ProductsController {
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Product does not exist' })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Slug or SKU already exists' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'stockQuantity sent for a product whose stock is managed per variant',
+  })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(UpdateProductSchema)) dto: UpdateProductDto,
@@ -123,6 +132,10 @@ export class ProductsController {
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Product deleted successfully' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Product does not exist' })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: 'Product has order history; unpublish it instead',
+  })
   async remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string; data: null }> {
     await this.productsService.remove(id);
     return { message: 'Product deleted successfully', data: null };

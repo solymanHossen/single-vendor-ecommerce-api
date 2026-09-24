@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service';
 const mockPrisma = {
   product: {
     findUniqueOrThrow: jest.fn(),
+    update: jest.fn(),
   },
   productVariant: {
     findMany: jest.fn(),
@@ -12,8 +13,23 @@ const mockPrisma = {
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    aggregate: jest.fn(),
   },
+  // Interactive transactions run their callback against the same client.
+  $transaction: jest.fn(),
 };
+
+function expectStockSyncedTo(productId: number, total: number): void {
+  expect(mockPrisma.productVariant.aggregate).toHaveBeenCalledWith({
+    where: { productId },
+    _sum: { stockQuantity: true },
+  });
+  expect(mockPrisma.product.update).toHaveBeenCalledWith({
+    where: { id: productId },
+    data: { stockQuantity: total },
+    select: { id: true },
+  });
+}
 
 const sampleRow = {
   id: 201,
@@ -41,6 +57,10 @@ describe('ProductVariantsService', () => {
 
     service = module.get<ProductVariantsService>(ProductVariantsService);
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((run: (tx: typeof mockPrisma) => unknown) =>
+      run(mockPrisma),
+    );
+    mockPrisma.productVariant.aggregate.mockResolvedValue({ _sum: { stockQuantity: 30 } });
   });
 
   describe('findAllByProduct()', () => {
@@ -91,10 +111,19 @@ describe('ProductVariantsService', () => {
         },
         select: expect.any(Object),
       });
+      expectStockSyncedTo(101, 30);
     });
   });
 
   describe('update()', () => {
+    it('re-syncs the product stock when variant stock changes', async () => {
+      mockPrisma.productVariant.update.mockResolvedValueOnce(sampleRow);
+
+      await service.update(201, { stockQuantity: 4 });
+
+      expectStockSyncedTo(101, 30);
+    });
+
     it('replaces the option set with deleteMany + create when attributeOptionIds are provided', async () => {
       mockPrisma.productVariant.update.mockResolvedValueOnce(sampleRow);
 
@@ -119,16 +148,31 @@ describe('ProductVariantsService', () => {
         data: { price: 899 },
         select: expect.any(Object),
       });
+      // Price-only edits leave stock alone — no extra writes.
+      expect(mockPrisma.productVariant.aggregate).not.toHaveBeenCalled();
     });
   });
 
   describe('remove()', () => {
-    it('deletes the variant by id', async () => {
-      mockPrisma.productVariant.delete.mockResolvedValueOnce(sampleRow);
+    it('deletes the variant and re-syncs its product stock', async () => {
+      mockPrisma.productVariant.delete.mockResolvedValueOnce({ productId: 101 });
 
       await service.remove(201);
 
-      expect(mockPrisma.productVariant.delete).toHaveBeenCalledWith({ where: { id: 201 } });
+      expect(mockPrisma.productVariant.delete).toHaveBeenCalledWith({
+        where: { id: 201 },
+        select: { productId: true },
+      });
+      expectStockSyncedTo(101, 30);
+    });
+
+    it('drops the product stock to 0 when the last variant goes', async () => {
+      mockPrisma.productVariant.delete.mockResolvedValueOnce({ productId: 101 });
+      mockPrisma.productVariant.aggregate.mockResolvedValue({ _sum: { stockQuantity: null } });
+
+      await service.remove(201);
+
+      expectStockSyncedTo(101, 0);
     });
   });
 });

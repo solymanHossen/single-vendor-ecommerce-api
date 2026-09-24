@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OrderStatus, PaymentStatus, Prisma, Role, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { LOW_STOCK_THRESHOLD } from '../products/products.constants';
 import {
   AnalyticsDashboardEntity,
   AnalyticsSummaryEntity,
@@ -18,7 +19,6 @@ import {
 const MS_PER_DAY = 86_400_000;
 /** Asia/Dhaka is UTC+6 all year (no DST), so day boundaries are a fixed offset. */
 const DHAKA_OFFSET_MS = 6 * 3_600_000;
-const LOW_STOCK_THRESHOLD = 5;
 const TOP_PRODUCTS_LIMIT = 5;
 const RECENT_ORDERS_LIMIT = 8;
 const LATEST_REVIEWS_LIMIT = 4;

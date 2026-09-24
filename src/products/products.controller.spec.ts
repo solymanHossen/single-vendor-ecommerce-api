@@ -46,7 +46,7 @@ describe('ProductsController', () => {
   });
 
   describe('findAll()', () => {
-    it('delegates the query dto to the service and wraps the result', async () => {
+    it('forces isPublished=true and wraps the result', async () => {
       const paginated = new PaginatedProductsEntity({
         items: [sampleProduct],
         meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
@@ -56,18 +56,19 @@ describe('ProductsController', () => {
 
       const result = await controller.findAll(query);
 
-      expect(mockProductsService.findAll).toHaveBeenCalledWith(query);
+      // Public route: drafts are always excluded, whatever the caller sends.
+      expect(mockProductsService.findAll).toHaveBeenCalledWith({ ...query, isPublished: true });
       expect(result).toEqual({ message: 'Products retrieved successfully', data: paginated });
     });
   });
 
   describe('findOne()', () => {
-    it('delegates to the service and wraps the result', async () => {
+    it('asks the service for a published product only and wraps the result', async () => {
       mockProductsService.findOne.mockResolvedValueOnce(sampleProduct);
 
       const result = await controller.findOne(1);
 
-      expect(mockProductsService.findOne).toHaveBeenCalledWith(1);
+      expect(mockProductsService.findOne).toHaveBeenCalledWith(1, { publishedOnly: true });
       expect(result).toEqual({ message: 'Product retrieved successfully', data: sampleProduct });
     });
   });
