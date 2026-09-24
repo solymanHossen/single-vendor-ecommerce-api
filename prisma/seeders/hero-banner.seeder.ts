@@ -9,7 +9,7 @@ const HERO_BANNERS = [
   {
     placement: 'MAIN' as const,
     title: 'Next-Gen Gaming Rigs & RTX Flash Sale',
-    href: '/shop?category=gaming-pc',
+    href: '/products?category=gaming-pc',
     imageUrl:
       'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1400&q=80',
     imageKey: 'seed/hero-banner-1',
@@ -18,7 +18,7 @@ const HERO_BANNERS = [
   {
     placement: 'MAIN' as const,
     title: 'New Season Fashion Collection',
-    href: '/shop?category=fashion',
+    href: '/products?category=fashion',
     imageUrl:
       'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1400&q=80',
     imageKey: 'seed/hero-banner-2',
@@ -27,7 +27,7 @@ const HERO_BANNERS = [
   {
     placement: 'MAIN' as const,
     title: 'Hi-Fi Wireless Audio & ANC Headphones',
-    href: '/shop?category=audio',
+    href: '/products?category=audio',
     imageUrl:
       'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=1400&q=80',
     imageKey: 'seed/hero-banner-3',
@@ -36,7 +36,7 @@ const HERO_BANNERS = [
   {
     placement: 'SIDE' as const,
     title: 'MacBook Air M3 Series Offer',
-    href: '/product/macbook-air-m3',
+    href: '/products/macbook-air-m3',
     imageUrl:
       'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=800&q=80',
     imageKey: 'seed/hero-banner-4',
@@ -45,7 +45,7 @@ const HERO_BANNERS = [
   {
     placement: 'SIDE' as const,
     title: 'AirPods Pro 2nd Gen Offer',
-    href: '/product/airpods-pro-2',
+    href: '/products/airpods-pro-2',
     imageUrl:
       'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=800&q=80',
     imageKey: 'seed/hero-banner-5',
