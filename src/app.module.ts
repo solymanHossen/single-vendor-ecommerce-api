@@ -23,6 +23,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ReturnsModule } from './returns/returns.module';
 import { TicketsModule } from './tickets/tickets.module';
+import { StorefrontModule } from './storefront/storefront.module';
 import { MailModule } from './mail/mail.module';
 import { AppIdentityModule } from './common/config/app-identity.module';
 import { validateEnv } from './common/config/env.validation';
@@ -110,6 +111,7 @@ import {
     ReviewsModule,
     ReturnsModule,
     TicketsModule,
+    StorefrontModule,
   ],
   providers: [
     // ── Global validation pipe ────────────────────────────────────────────────

@@ -114,6 +114,7 @@ describe('ProductsService', () => {
             OR: [
               { name: { contains: 'phone', mode: 'insensitive' } },
               { sku: { contains: 'phone', mode: 'insensitive' } },
+              { category: { name: { contains: 'phone', mode: 'insensitive' } } },
             ],
             basePrice: { gte: 100, lte: 500 },
           },

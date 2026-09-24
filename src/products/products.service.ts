@@ -158,9 +158,12 @@ export class ProductsService {
     }
 
     if (query.search !== undefined) {
+      // Category name is included so shoppers typing a department ("audio",
+      // "skincare") find its products, not only exact product-name matches.
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },
         { sku: { contains: query.search, mode: 'insensitive' } },
+        { category: { name: { contains: query.search, mode: 'insensitive' } } },
       ];
     }
 
