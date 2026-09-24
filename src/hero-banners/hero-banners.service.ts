@@ -34,7 +34,9 @@ export class HeroBannersService {
     const rows = await this.prisma.heroBanner.findMany({
       where: { isActive: true, ...(placement ? { placement } : {}) },
       select: HERO_BANNER_SELECT,
-      orderBy: { sortOrder: 'asc' },
+      // id breaks ties so banners sharing a sortOrder still render in a
+      // stable, predictable order instead of whatever Postgres returns.
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     });
 
     return rows.map((row) => this.toEntity(row));
@@ -43,15 +45,20 @@ export class HeroBannersService {
   async findAllForAdmin(): Promise<HeroBannerEntity[]> {
     const rows = await this.prisma.heroBanner.findMany({
       select: HERO_BANNER_SELECT,
-      orderBy: [{ placement: 'asc' }, { sortOrder: 'asc' }],
+      orderBy: [{ placement: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
     });
 
     return rows.map((row) => this.toEntity(row));
   }
 
   async create(dto: CreateHeroBannerDto): Promise<HeroBannerEntity> {
+    // Without an explicit position, a new banner goes to the END of its
+    // placement. Defaulting to 0 (the column default) would tie it with the
+    // current first banner, and a tie can't be fixed by swapping positions.
+    const sortOrder = dto.sortOrder ?? (await this.nextSortOrder(dto.placement));
+
     const created = await this.prisma.heroBanner.create({
-      data: dto,
+      data: { ...dto, sortOrder },
       select: HERO_BANNER_SELECT,
     });
 
@@ -66,6 +73,14 @@ export class HeroBannersService {
     });
 
     return this.toEntity(updated);
+  }
+
+  private async nextSortOrder(placement: HeroBannerPlacement): Promise<number> {
+    const { _max } = await this.prisma.heroBanner.aggregate({
+      where: { placement },
+      _max: { sortOrder: true },
+    });
+    return _max.sortOrder === null ? 0 : _max.sortOrder + 1;
   }
 
   async reorder(dto: ReorderHeroBannersDto): Promise<void> {
