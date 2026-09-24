@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { CreateAddressSchema } from './dto/create-address.dto';
 import { AddressesService } from './addresses.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -18,6 +19,8 @@ const mockPrisma = {
 const sampleRow = {
   id: 1,
   userId: 10,
+  recipientName: 'Nusrat Jahan',
+  phone: '01712345678',
   addressLine1: '123 Main St',
   addressLine2: null,
   city: 'Springfield',
@@ -81,6 +84,8 @@ describe('AddressesService', () => {
       mockPrisma.address.create.mockResolvedValueOnce(sampleRow);
 
       await service.create(10, {
+        recipientName: 'Nusrat Jahan',
+        phone: '01712345678',
         addressLine1: '123 Main St',
         city: 'Springfield',
         state: 'IL',
@@ -91,6 +96,8 @@ describe('AddressesService', () => {
 
       expect(mockPrisma.address.create).toHaveBeenCalledWith({
         data: {
+          recipientName: 'Nusrat Jahan',
+          phone: '01712345678',
           addressLine1: '123 Main St',
           city: 'Springfield',
           state: 'IL',
@@ -111,6 +118,8 @@ describe('AddressesService', () => {
       ]);
 
       const result = await service.create(10, {
+        recipientName: 'Nusrat Jahan',
+        phone: '01712345678',
         addressLine1: '123 Main St',
         city: 'Springfield',
         state: 'IL',
@@ -172,6 +181,25 @@ describe('AddressesService', () => {
       mockPrisma.address.deleteMany.mockResolvedValueOnce({ count: 0 });
 
       await expect(service.remove(10, 999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('CreateAddressSchema', () => {
+    const base = {
+      recipientName: 'Nusrat Jahan',
+      addressLine1: 'House 12, Road 5',
+      city: 'Dhaka',
+      state: 'Dhaka Division',
+      postalCode: '1209',
+      country: 'Bangladesh',
+    };
+
+    it.each(['01712345678', '+8801712345678', '8801912345678'])('accepts %s', (phone) => {
+      expect(CreateAddressSchema.safeParse({ ...base, phone }).success).toBe(true);
+    });
+
+    it.each(['1712345678', '01212345678', '0171234567', 'phone'])('rejects %s', (phone) => {
+      expect(CreateAddressSchema.safeParse({ ...base, phone }).success).toBe(false);
     });
   });
 });

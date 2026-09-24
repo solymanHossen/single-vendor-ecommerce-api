@@ -4,6 +4,8 @@ import { MAX_CART_ITEM_QUANTITY } from '../carts.constants';
 export const AddCartItemSchema = z
   .object({
     productId: z.number().int().positive(),
+    // Required when the product sells through variants; omitted otherwise.
+    variantId: z.number().int().positive().optional(),
     quantity: z.number().int().min(1).max(MAX_CART_ITEM_QUANTITY).default(1),
   })
   // Reject unrecognized fields instead of silently stripping them.

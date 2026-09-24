@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { CartsController } from './carts.controller';
 import { CartsService } from './carts.service';
@@ -10,6 +11,7 @@ const mockCartsService = {
   updateItemQuantity: jest.fn(),
   removeItem: jest.fn(),
   clearCart: jest.fn(),
+  mergeGuestCart: jest.fn(),
 };
 
 const identity: CartIdentity = { type: 'user', id: 7 };
@@ -18,6 +20,7 @@ const sampleCart = new CartEntity({
   items: [],
   totalItems: 0,
   totalPrice: 0 as unknown as CartEntity['totalPrice'],
+  hasIssues: false,
 });
 
 describe('CartsController', () => {
@@ -57,12 +60,12 @@ describe('CartsController', () => {
   });
 
   describe('updateItemQuantity()', () => {
-    it('delegates to the service with identity, productId, and dto', async () => {
+    it('delegates to the service with identity, line key, and dto', async () => {
       mockCartsService.updateItemQuantity.mockResolvedValueOnce(sampleCart);
 
-      const result = await controller.updateItemQuantity(identity, 101, { quantity: 5 });
+      const result = await controller.updateItemQuantity(identity, '101:204', { quantity: 5 });
 
-      expect(mockCartsService.updateItemQuantity).toHaveBeenCalledWith(identity, 101, {
+      expect(mockCartsService.updateItemQuantity).toHaveBeenCalledWith(identity, '101:204', {
         quantity: 5,
       });
       expect(result).toEqual({ message: 'Cart item updated successfully', data: sampleCart });
@@ -70,13 +73,39 @@ describe('CartsController', () => {
   });
 
   describe('removeItem()', () => {
-    it('delegates to the service with identity and productId', async () => {
+    it('delegates to the service with identity and line key', async () => {
       mockCartsService.removeItem.mockResolvedValueOnce(sampleCart);
 
-      const result = await controller.removeItem(identity, 101);
+      const result = await controller.removeItem(identity, '101');
 
-      expect(mockCartsService.removeItem).toHaveBeenCalledWith(identity, 101);
+      expect(mockCartsService.removeItem).toHaveBeenCalledWith(identity, '101');
       expect(result).toEqual({ message: 'Item removed from cart successfully', data: sampleCart });
+    });
+  });
+
+  describe('merge()', () => {
+    it('merges the guest cart named by the header into the user cart', async () => {
+      mockCartsService.mergeGuestCart.mockResolvedValueOnce(sampleCart);
+
+      const result = await controller.merge(identity, ' guest-abc ');
+
+      expect(mockCartsService.mergeGuestCart).toHaveBeenCalledWith(7, 'guest-abc');
+      expect(result).toEqual({ message: 'Cart merged successfully', data: sampleCart });
+    });
+
+    it('just returns the user cart when there is no guest session', async () => {
+      mockCartsService.getCart.mockResolvedValueOnce(sampleCart);
+
+      await controller.merge(identity, undefined);
+
+      expect(mockCartsService.mergeGuestCart).not.toHaveBeenCalled();
+      expect(mockCartsService.getCart).toHaveBeenCalledWith(identity);
+    });
+
+    it('refuses a guest caller', async () => {
+      await expect(
+        controller.merge({ type: 'session', id: 'guest-abc' }, 'guest-abc'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 

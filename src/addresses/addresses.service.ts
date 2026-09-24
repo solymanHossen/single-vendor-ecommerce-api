@@ -8,6 +8,8 @@ import { AddressEntity } from './entities/address.entity';
 const ADDRESS_SELECT = {
   id: true,
   userId: true,
+  recipientName: true,
+  phone: true,
   addressLine1: true,
   addressLine2: true,
   city: true,
@@ -115,6 +117,8 @@ export class AddressesService {
     return new AddressEntity({
       id: address.id,
       userId: address.userId,
+      recipientName: address.recipientName,
+      phone: address.phone,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2,
       city: address.city,

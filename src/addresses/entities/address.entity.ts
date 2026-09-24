@@ -3,6 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 interface AddressEntityInput {
   id: number;
   userId: number;
+  recipientName: string | null;
+  phone: string | null;
   addressLine1: string;
   addressLine2: string | null;
   city: string;
@@ -20,6 +22,12 @@ export class AddressEntity {
 
   @ApiProperty({ example: 1 })
   userId: number;
+
+  @ApiProperty({ nullable: true, example: 'Nusrat Jahan' })
+  recipientName: string | null;
+
+  @ApiProperty({ nullable: true, example: '01712345678' })
+  phone: string | null;
 
   @ApiProperty({ example: '123 Main St' })
   addressLine1: string;
@@ -51,6 +59,8 @@ export class AddressEntity {
   constructor(partial: AddressEntityInput) {
     this.id = partial.id;
     this.userId = partial.userId;
+    this.recipientName = partial.recipientName;
+    this.phone = partial.phone;
     this.addressLine1 = partial.addressLine1;
     this.addressLine2 = partial.addressLine2;
     this.city = partial.city;

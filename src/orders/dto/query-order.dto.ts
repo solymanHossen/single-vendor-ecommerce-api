@@ -9,6 +9,8 @@ export const OrderQuerySchema = z
     // Only honored for ADMIN/SUPER_ADMIN callers — OrdersService forces this
     // to the caller's own id for a plain USER regardless of what's passed here.
     userId: z.coerce.number().int().positive().optional(),
+    // Staff only: "#123"/"123" matches an order id, anything else a customer name or email.
+    search: z.string().trim().min(1).max(150).optional(),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),
   })
   // Reject unrecognized fields instead of silently stripping them.

@@ -44,6 +44,8 @@ interface Customer {
   readonly id: number;
   readonly createdAt: Date;
   readonly addresses: ReadonlyArray<{
+    readonly recipientName: string | null;
+    readonly phone: string | null;
     readonly addressLine1: string;
     readonly addressLine2: string | null;
     readonly city: string;
@@ -54,6 +56,7 @@ interface Customer {
 }
 
 interface CouponRule {
+  readonly code: string;
   readonly discountType: DiscountType;
   readonly valuePoisha: number;
   readonly minOrderPoisha: number;
@@ -322,7 +325,10 @@ export class OrderSeeder implements Seeder {
         discountAmount: poishaToMoney(discountPoisha),
         shippingFee: poishaToMoney(shippingPoisha),
         // Frozen snapshot, exactly the shape OrdersService writes at checkout.
+        couponCode: coupon?.code ?? null,
         shippingAddress: {
+          recipientName: address.recipientName,
+          phone: address.phone,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
           city: address.city,
@@ -389,6 +395,8 @@ export class OrderSeeder implements Seeder {
         createdAt: true,
         addresses: {
           select: {
+            recipientName: true,
+            phone: true,
             addressLine1: true,
             addressLine2: true,
             city: true,
@@ -430,6 +438,7 @@ export class OrderSeeder implements Seeder {
     const coupons = await prisma.coupon.findMany({
       where: { isActive: true },
       select: {
+        code: true,
         discountType: true,
         discountValue: true,
         minOrderAmount: true,
@@ -440,6 +449,7 @@ export class OrderSeeder implements Seeder {
     });
 
     return coupons.map((coupon) => ({
+      code: coupon.code,
       discountType: coupon.discountType,
       valuePoisha: decimalToPoisha(coupon.discountValue),
       minOrderPoisha: coupon.minOrderAmount ? decimalToPoisha(coupon.minOrderAmount) : 0,

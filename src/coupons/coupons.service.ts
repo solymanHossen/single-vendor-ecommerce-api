@@ -98,7 +98,28 @@ export class CouponsService {
   }
 
   async validate(userId: number, dto: ValidateCouponDto): Promise<CouponValidationEntity> {
-    const code = dto.code.toUpperCase();
+    // Lazy: the coupon's own checks run first, so an invalid code reports
+    // as invalid whatever the cart holds.
+    return this.evaluate(dto.code, async () => {
+      const cart = await this.cartsService.getCart({ type: 'user', id: userId });
+      if (cart.items.length === 0) {
+        throw new BadRequestException('Cannot validate a coupon with an empty cart.');
+      }
+      return cart.totalPrice;
+    });
+  }
+
+  /**
+   * Checks a code against an order amount and computes its discount. The
+   * single source of the coupon rules — used by /coupons/validate and by
+   * checkout (quote + place order). Throws the same errors in both paths.
+   */
+  async evaluate(
+    rawCode: string,
+    amount: Prisma.Decimal | (() => Promise<Prisma.Decimal>),
+    now: Date = new Date(),
+  ): Promise<CouponValidationEntity> {
+    const code = rawCode.trim().toUpperCase();
 
     const coupon = await this.prisma.coupon.findUnique({
       where: { code },
@@ -113,8 +134,6 @@ export class CouponsService {
       throw new NotFoundException('Coupon code is invalid.');
     }
 
-    const now = new Date();
-
     if (now < coupon.validFrom) {
       throw new BadRequestException('This coupon is not active yet.');
     }
@@ -125,13 +144,7 @@ export class CouponsService {
       throw new BadRequestException('This coupon has reached its usage limit.');
     }
 
-    const cart = await this.cartsService.getCart({ type: 'user', id: userId });
-
-    if (cart.items.length === 0) {
-      throw new BadRequestException('Cannot validate a coupon with an empty cart.');
-    }
-
-    const orderAmount = cart.totalPrice;
+    const orderAmount = typeof amount === 'function' ? await amount() : amount;
 
     if (coupon.minOrderAmount !== null && orderAmount.lessThan(coupon.minOrderAmount)) {
       throw new BadRequestException(
@@ -155,7 +168,8 @@ export class CouponsService {
       code: coupon.code,
       discountType: coupon.discountType,
       discountValue: coupon.discountValue,
-      discountAmount,
+      // Whole poisha: money columns are Decimal(12, 2).
+      discountAmount: discountAmount.toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN),
       orderAmount,
     });
   }

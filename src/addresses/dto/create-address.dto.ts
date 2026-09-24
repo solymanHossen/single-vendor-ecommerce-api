@@ -2,6 +2,15 @@ import { z } from 'zod';
 
 export const CreateAddressSchema = z
   .object({
+    recipientName: z.string().trim().min(2, 'recipientName is required').max(100),
+    phone: z
+      .string()
+      .trim()
+      // Bangladeshi mobile: 01XXXXXXXXX, optionally with +88 / 88.
+      .regex(
+        /^(?:\+?88)?01[3-9]\d{8}$/,
+        'Enter a valid Bangladeshi mobile number, e.g. 01712345678',
+      ),
     addressLine1: z.string().trim().min(1, 'addressLine1 is required').max(255),
     addressLine2: z.string().trim().max(255).optional(),
     city: z.string().trim().min(1, 'city is required').max(100),

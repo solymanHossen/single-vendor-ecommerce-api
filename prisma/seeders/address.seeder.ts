@@ -24,7 +24,7 @@ export class AddressSeeder implements Seeder {
 
     const customers = await prisma.user.findMany({
       where: { role: Role.USER },
-      select: { id: true, createdAt: true },
+      select: { id: true, name: true, phone: true, createdAt: true },
       orderBy: { id: 'asc' },
     });
 
@@ -43,6 +43,8 @@ export class AddressSeeder implements Seeder {
 
         addresses.push({
           userId: customer.id,
+          recipientName: customer.name,
+          phone: customer.phone,
           addressLine1: `House ${faker.number.int({ min: 1, max: 120 })}, Road ${faker.number.int({ min: 1, max: 32 })}, ${location.area}`,
           addressLine2: faker.datatype.boolean({ probability: 0.55 })
             ? faker.helpers.arrayElement(ADDRESS_LINE2_OPTIONS)

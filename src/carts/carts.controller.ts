@@ -1,14 +1,15 @@
 import {
   Body,
   Controller,
+  Headers,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBody, ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -63,7 +64,11 @@ export class CartsController {
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
-    description: 'Product does not exist or is not published',
+    description: 'Product (or variant) does not exist or is not published',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: 'Out of stock, or the cart already holds every available unit',
   })
   async addItem(
     @CurrentCart() identity: CartIdentity,
@@ -73,34 +78,62 @@ export class CartsController {
     return { message: 'Item added to cart successfully', data: cart };
   }
 
-  @Patch('items/:productId')
+  @Patch('items/:key')
   @ApiOperation({ summary: 'Set the exact quantity of an item already in the cart' })
-  @ApiParam({ name: 'productId', type: Number })
+  @ApiParam({
+    name: 'key',
+    type: String,
+    example: '101:204',
+    description: '<productId> or <productId>:<variantId>',
+  })
   @ApiBody({ schema: z.toJSONSchema(UpdateCartItemSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.OK, type: CartEntity })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' })
-  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Product is not in the cart' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Item is not in the cart' })
+  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Not enough stock for that quantity' })
   async updateItemQuantity(
     @CurrentCart() identity: CartIdentity,
-    @Param('productId', ParseIntPipe) productId: number,
+    @Param('key') key: string,
     @Body(new ZodValidationPipe(UpdateCartItemSchema)) dto: UpdateCartItemDto,
   ): Promise<{ message: string; data: CartEntity }> {
-    const cart = await this.cartsService.updateItemQuantity(identity, productId, dto);
+    const cart = await this.cartsService.updateItemQuantity(identity, key, dto);
     return { message: 'Cart item updated successfully', data: cart };
   }
 
-  @Delete('items/:productId')
+  @Delete('items/:key')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove a single item from the cart' })
-  @ApiParam({ name: 'productId', type: Number })
+  @ApiParam({ name: 'key', type: String, example: '101:204' })
   @ApiResponse({ status: HttpStatus.OK, type: CartEntity })
-  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Product is not in the cart' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Item is not in the cart' })
   async removeItem(
     @CurrentCart() identity: CartIdentity,
-    @Param('productId', ParseIntPipe) productId: number,
+    @Param('key') key: string,
   ): Promise<{ message: string; data: CartEntity }> {
-    const cart = await this.cartsService.removeItem(identity, productId);
+    const cart = await this.cartsService.removeItem(identity, key);
     return { message: 'Item removed from cart successfully', data: cart };
+  }
+
+  @Post('merge')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Move the guest cart (x-session-id) into the signed-in user's cart",
+    description: 'Call once after sign-in. Quantities add up; the guest cart is deleted.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, type: CartEntity })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Requires a Bearer token' })
+  async merge(
+    @CurrentCart() identity: CartIdentity,
+    @Headers(SESSION_ID_HEADER) sessionHeader: string | undefined,
+  ): Promise<{ message: string; data: CartEntity }> {
+    if (identity.type !== 'user') {
+      throw new UnauthorizedException('Sign in to merge a guest cart.');
+    }
+    const sessionId = sessionHeader?.trim();
+    const cart = sessionId
+      ? await this.cartsService.mergeGuestCart(identity.id, sessionId)
+      : await this.cartsService.getCart(identity);
+    return { message: 'Cart merged successfully', data: cart };
   }
 
   @Delete()

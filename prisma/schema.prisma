@@ -66,18 +66,22 @@ model PasswordResetToken {
 }
 
 model Address {
-  id           Int      @id @default(autoincrement())
-  userId       Int      @map("user_id")
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  addressLine1 String   @map("address_line1")
-  addressLine2 String?  @map("address_line2")
-  city         String
-  state        String
-  postalCode   String   @map("postal_code")
-  country      String
-  isDefault    Boolean  @default(false) @map("is_default")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Who receives the parcel and the number the courier calls — cash on
+  // delivery in Bangladesh doesn't work without a reachable phone.
+  recipientName String?  @map("recipient_name")
+  phone         String?
+  addressLine1  String   @map("address_line1")
+  addressLine2  String?  @map("address_line2")
+  city          String
+  state         String
+  postalCode    String   @map("postal_code")
+  country       String
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@index([userId])
   @@map("addresses")
@@ -281,6 +285,10 @@ model Order {
   // Frozen copy of the Address used at checkout — never a live FK, so
   // editing/deleting the source Address later can't rewrite history.
   shippingAddress Json           @map("shipping_address")
+  // Code as typed at checkout (upper-cased); kept even if the coupon is
+  // later deleted, so the discount on the invoice stays explainable.
+  couponCode      String?        @map("coupon_code")
+  note            String?        @db.VarChar(500)
   items           OrderItem[]
   payment         Payment?
   reviews         Review[]

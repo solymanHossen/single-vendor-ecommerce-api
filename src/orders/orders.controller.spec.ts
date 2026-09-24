@@ -2,58 +2,24 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { Role } from '@prisma/client';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
-import {
-  OrderEntity,
-  OrderItemEntity,
-  OrderItemProductSummaryEntity,
-  PaginatedOrdersEntity,
-  ShippingAddressEntity,
-} from './entities/order.entity';
+import { PlaceOrderSchema } from './dto/place-order.dto';
+import { QuoteOrderSchema } from './dto/quote-order.dto';
+import type { OrderEntity, OrderQuoteEntity, PaginatedOrdersEntity } from './entities/order.entity';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 
 const mockOrdersService = {
+  quote: jest.fn(),
   placeOrder: jest.fn(),
   findAll: jest.fn(),
   findOne: jest.fn(),
+  cancel: jest.fn(),
   updateStatus: jest.fn(),
 };
 
 const currentUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
 
-const sampleOrder = new OrderEntity({
-  id: 301,
-  userId: 7,
-  status: 'PENDING',
-  paymentStatus: 'UNPAID',
-  totalAmount: 1998 as unknown as OrderEntity['totalAmount'],
-  discountAmount: 0 as unknown as OrderEntity['discountAmount'],
-  shippingFee: 0 as unknown as OrderEntity['shippingFee'],
-  shippingAddress: new ShippingAddressEntity({
-    addressLine1: '123 Main St',
-    addressLine2: null,
-    city: 'Springfield',
-    state: 'IL',
-    postalCode: '62704',
-    country: 'USA',
-  }),
-  items: [
-    new OrderItemEntity({
-      id: 501,
-      productId: 101,
-      product: new OrderItemProductSummaryEntity({
-        id: 101,
-        name: 'iPhone 17 Pro',
-        slug: 'iphone-17-pro',
-        imageUrl: null,
-      }),
-      quantity: 2,
-      unitPrice: 999 as unknown as OrderItemEntity['unitPrice'],
-      subtotal: 1998 as unknown as OrderItemEntity['subtotal'],
-    }),
-  ],
-  createdAt: new Date(),
-  updatedAt: new Date(),
-});
+// The controller only forwards service results, so opaque stand-ins suffice.
+const sampleOrder = { id: 301, status: 'PENDING' } as unknown as OrderEntity;
 
 describe('OrdersController', () => {
   let controller: OrdersController;
@@ -68,55 +34,81 @@ describe('OrdersController', () => {
     jest.clearAllMocks();
   });
 
-  describe('placeOrder()', () => {
-    it("delegates to the service with the current user's id and dto", async () => {
-      mockOrdersService.placeOrder.mockResolvedValueOnce(sampleOrder);
+  it("quote() prices the caller's cart", async () => {
+    const quote = { totalAmount: '100.00' } as unknown as OrderQuoteEntity;
+    mockOrdersService.quote.mockResolvedValueOnce(quote);
 
-      const result = await controller.placeOrder(currentUser, { addressId: 1 });
+    const result = await controller.quote(currentUser, { addressId: 1, couponCode: 'X' });
 
-      expect(mockOrdersService.placeOrder).toHaveBeenCalledWith(7, { addressId: 1 });
-      expect(result).toEqual({ message: 'Order placed successfully', data: sampleOrder });
-    });
+    expect(mockOrdersService.quote).toHaveBeenCalledWith(7, { addressId: 1, couponCode: 'X' });
+    expect(result).toEqual({ message: 'Quote calculated successfully', data: quote });
   });
 
-  describe('findAll()', () => {
-    it('delegates to the service with the current user and query', async () => {
-      const paginated = new PaginatedOrdersEntity({
-        items: [sampleOrder],
-        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
-      });
-      mockOrdersService.findAll.mockResolvedValueOnce(paginated);
-      const query = { page: 1, limit: 20, sortOrder: 'desc' as const };
+  it("placeOrder() delegates with the current user's id and dto", async () => {
+    mockOrdersService.placeOrder.mockResolvedValueOnce(sampleOrder);
+    const dto = PlaceOrderSchema.parse({ addressId: 1 });
 
-      const result = await controller.findAll(currentUser, query);
+    const result = await controller.placeOrder(currentUser, dto);
 
-      expect(mockOrdersService.findAll).toHaveBeenCalledWith(currentUser, query);
-      expect(result).toEqual({ message: 'Orders retrieved successfully', data: paginated });
+    expect(mockOrdersService.placeOrder).toHaveBeenCalledWith(7, {
+      addressId: 1,
+      paymentMethod: 'COD',
     });
+    expect(result).toEqual({ message: 'Order placed successfully', data: sampleOrder });
   });
 
-  describe('findOne()', () => {
-    it('delegates to the service with the current user and id', async () => {
-      mockOrdersService.findOne.mockResolvedValueOnce(sampleOrder);
+  it('findAll() delegates with the current user and query', async () => {
+    const page = { items: [sampleOrder] } as unknown as PaginatedOrdersEntity;
+    mockOrdersService.findAll.mockResolvedValueOnce(page);
+    const query = { page: 1, limit: 20, sortOrder: 'desc' as const };
 
-      const result = await controller.findOne(currentUser, 301);
+    const result = await controller.findAll(currentUser, query);
 
-      expect(mockOrdersService.findOne).toHaveBeenCalledWith(currentUser, 301);
-      expect(result).toEqual({ message: 'Order retrieved successfully', data: sampleOrder });
-    });
+    expect(mockOrdersService.findAll).toHaveBeenCalledWith(currentUser, query);
+    expect(result).toEqual({ message: 'Orders retrieved successfully', data: page });
   });
 
-  describe('updateStatus()', () => {
-    it('delegates to the service with id and dto', async () => {
-      mockOrdersService.updateStatus.mockResolvedValueOnce({ ...sampleOrder, status: 'SHIPPED' });
+  it('findOne() delegates with the current user and id', async () => {
+    mockOrdersService.findOne.mockResolvedValueOnce(sampleOrder);
 
-      const result = await controller.updateStatus(301, { status: 'SHIPPED' });
+    const result = await controller.findOne(currentUser, 301);
 
-      expect(mockOrdersService.updateStatus).toHaveBeenCalledWith(301, { status: 'SHIPPED' });
-      expect(result).toEqual({
-        message: 'Order status updated successfully',
-        data: { ...sampleOrder, status: 'SHIPPED' },
-      });
+    expect(mockOrdersService.findOne).toHaveBeenCalledWith(currentUser, 301);
+    expect(result).toEqual({ message: 'Order retrieved successfully', data: sampleOrder });
+  });
+
+  it('cancel() delegates with the current user and id', async () => {
+    mockOrdersService.cancel.mockResolvedValueOnce(sampleOrder);
+
+    const result = await controller.cancel(currentUser, 301);
+
+    expect(mockOrdersService.cancel).toHaveBeenCalledWith(currentUser, 301);
+    expect(result).toEqual({ message: 'Order cancelled successfully', data: sampleOrder });
+  });
+
+  it('updateStatus() delegates with id and dto', async () => {
+    mockOrdersService.updateStatus.mockResolvedValueOnce(sampleOrder);
+
+    await controller.updateStatus(301, { status: 'SHIPPED' });
+
+    expect(mockOrdersService.updateStatus).toHaveBeenCalledWith(301, { status: 'SHIPPED' });
+  });
+
+  describe('DTOs', () => {
+    it('only accepts cash on delivery for now', () => {
+      expect(PlaceOrderSchema.safeParse({ addressId: 1, paymentMethod: 'BKASH' }).success).toBe(
+        false,
+      );
+    });
+
+    it('caps the delivery note at 500 characters', () => {
+      expect(PlaceOrderSchema.safeParse({ addressId: 1, note: 'x'.repeat(501) }).success).toBe(
+        false,
+      );
+    });
+
+    it('lets a quote omit the address', () => {
+      expect(QuoteOrderSchema.parse({})).toEqual({});
     });
   });
 });

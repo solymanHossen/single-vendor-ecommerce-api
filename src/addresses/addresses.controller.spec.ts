@@ -22,6 +22,8 @@ const currentUser: AuthUser = {
 const sampleAddress = new AddressEntity({
   id: 1,
   userId: 10,
+  recipientName: 'Nusrat Jahan',
+  phone: '01712345678',
   addressLine1: '123 Main St',
   addressLine2: null,
   city: 'Springfield',
@@ -75,6 +77,8 @@ describe('AddressesController', () => {
     it('delegates to the service with user id and dto', async () => {
       mockAddressesService.create.mockResolvedValueOnce(sampleAddress);
       const dto = {
+        recipientName: 'Nusrat Jahan',
+        phone: '01712345678',
         addressLine1: '123 Main St',
         city: 'Springfield',
         state: 'IL',
