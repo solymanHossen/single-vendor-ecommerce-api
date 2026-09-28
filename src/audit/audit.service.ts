@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import type { AuditAction } from './audit.constants';
+import {
+  AUDIT_PURGE_BATCH_SIZE,
+  DEFAULT_AUDIT_RETENTION_DAYS,
+  type AuditAction,
+} from './audit.constants';
 import type { AuditQueryDto } from './dto/audit-query.dto';
 import {
   AuditActorEntity,
@@ -24,7 +29,21 @@ export interface AuditEvent {
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  /** History older than this is hidden from reads and purged nightly. */
+  readonly retentionDays: number;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    configService: ConfigService,
+  ) {
+    this.retentionDays =
+      configService.get<number>('AUDIT_LOG_RETENTION_DAYS') ?? DEFAULT_AUDIT_RETENTION_DAYS;
+  }
+
+  /** Oldest moment still inside the retention window. */
+  retentionCutoff(now: Date = new Date()): Date {
+    return new Date(now.getTime() - this.retentionDays * 86_400_000);
+  }
 
   /**
    * Best-effort: an audit write must never fail the action it describes
@@ -53,7 +72,8 @@ export class AuditService {
   }
 
   async findAll(query: AuditQueryDto): Promise<PaginatedAuditLogsEntity> {
-    const where: Prisma.AuditLogWhereInput = {};
+    // Only the retention window, even before tonight's purge has run.
+    const where: Prisma.AuditLogWhereInput = { createdAt: { gte: this.retentionCutoff() } };
     if (query.area) where.action = { startsWith: `${query.area}.` };
     if (query.actorId) where.actorId = query.actorId;
     if (query.targetType) where.targetType = query.targetType;
@@ -95,6 +115,29 @@ export class AuditService {
         total,
         totalPages: total === 0 ? 0 : Math.ceil(total / query.limit),
       },
+      retentionDays: this.retentionDays,
     });
+  }
+
+  /**
+   * Deletes entries older than the retention window in small id-ordered
+   * batches (uses the created_at index; each statement is short, so it never
+   * blocks inserts for long). Returns how many rows were removed.
+   */
+  async purgeExpired(now: Date = new Date()): Promise<number> {
+    const cutoff = this.retentionCutoff(now);
+    let removed = 0;
+    for (;;) {
+      const deleted = await this.prisma.$executeRaw`
+        DELETE FROM audit_logs
+        WHERE id IN (
+          SELECT id FROM audit_logs
+          WHERE created_at < ${cutoff}
+          ORDER BY id
+          LIMIT ${AUDIT_PURGE_BATCH_SIZE}
+        )`;
+      removed += deleted;
+      if (deleted < AUDIT_PURGE_BATCH_SIZE) return removed;
+    }
   }
 }

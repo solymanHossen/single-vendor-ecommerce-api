@@ -32,6 +32,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { PermissionsGuard } from './access/permissions.guard';
 import { AuditModule } from './audit/audit.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { StaffRolesModule } from './staff-roles/staff-roles.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -118,6 +119,7 @@ import {
     TicketsModule,
     StorefrontModule,
     AnalyticsModule,
+    ScheduleModule.forRoot(),
     AuditModule,
     StaffRolesModule,
     AdminUsersModule,

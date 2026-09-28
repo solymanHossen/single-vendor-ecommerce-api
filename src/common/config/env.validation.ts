@@ -53,6 +53,9 @@ export const envSchema = z
     // Milliseconds an idle connection is kept open before being released.
     DB_IDLE_TIMEOUT_MS: z.coerce.number().int().min(0).default(30000),
 
+    // Audit log entries older than this are hidden and purged nightly.
+    AUDIT_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+
     // Milliseconds a query will wait to acquire a row/table lock before
     // failing fast, separate from — and shorter than — DB_STATEMENT_TIMEOUT_MS.
     // Without this, a query queued behind a lock occupies a pool connection

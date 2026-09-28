@@ -1,10 +1,13 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { AuditService } from './audit.service';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
+import { AUDIT_PURGE_BATCH_SIZE } from './audit.constants';
 
 const mockPrisma = {
   auditLog: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
   $transaction: jest.fn(),
+  $executeRaw: jest.fn(),
 };
 
 describe('AuditService', () => {
@@ -12,7 +15,11 @@ describe('AuditService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AuditService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        AuditService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(90) } },
+      ],
     }).compile();
     service = module.get(AuditService);
     jest.resetAllMocks();
@@ -64,9 +71,51 @@ describe('AuditService', () => {
     const [findArgs] = mockPrisma.$transaction.mock.calls[0][0] as [
       { where: unknown; orderBy: unknown; skip: number },
     ];
-    expect(findArgs.where).toEqual({ action: { startsWith: 'user.' } });
+    expect(findArgs.where).toEqual({
+      createdAt: { gte: expect.any(Date) },
+      action: { startsWith: 'user.' },
+    });
     expect(findArgs.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
     expect(findArgs.skip).toBe(30);
     expect(page.meta.totalPages).toBe(0);
+    expect(page.retentionDays).toBe(90);
+  });
+
+  it('only reads entries inside the 90-day window', async () => {
+    mockPrisma.$transaction.mockResolvedValueOnce([[], 0]);
+    mockPrisma.auditLog.findMany.mockImplementation((args: unknown) => args);
+    mockPrisma.auditLog.count.mockImplementation((args: unknown) => args);
+
+    await service.findAll({ page: 1, limit: 30 });
+
+    const [findArgs] = mockPrisma.$transaction.mock.calls[0][0] as [
+      { where: { createdAt: { gte: Date } } },
+    ];
+    const ageDays = (Date.now() - findArgs.where.createdAt.gte.getTime()) / 86_400_000;
+    expect(Math.round(ageDays)).toBe(90);
+  });
+
+  describe('purgeExpired()', () => {
+    it('deletes in batches until a batch comes back short', async () => {
+      mockPrisma.$executeRaw
+        .mockResolvedValueOnce(AUDIT_PURGE_BATCH_SIZE)
+        .mockResolvedValueOnce(AUDIT_PURGE_BATCH_SIZE)
+        .mockResolvedValueOnce(12);
+
+      await expect(service.purgeExpired()).resolves.toBe(2 * AUDIT_PURGE_BATCH_SIZE + 12);
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
+    });
+
+    it('does one cheap query when nothing has expired', async () => {
+      mockPrisma.$executeRaw.mockResolvedValueOnce(0);
+
+      await expect(service.purgeExpired()).resolves.toBe(0);
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it('cuts off exactly the retention period before now', () => {
+      const now = new Date('2026-09-28T00:00:00.000Z');
+      expect(service.retentionCutoff(now).toISOString()).toBe('2026-06-30T00:00:00.000Z');
+    });
   });
 });

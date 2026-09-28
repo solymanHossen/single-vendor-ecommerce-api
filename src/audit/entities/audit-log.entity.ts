@@ -77,8 +77,12 @@ export class PaginatedAuditLogsEntity {
   @ApiProperty({ example: { page: 1, limit: 30, total: 120, totalPages: 4 } })
   meta: { page: number; limit: number; total: number; totalPages: number };
 
+  @ApiProperty({ example: 90, description: 'Only this many days of history are kept' })
+  retentionDays: number;
+
   constructor(partial: PaginatedAuditLogsEntity) {
     this.items = partial.items;
     this.meta = partial.meta;
+    this.retentionDays = partial.retentionDays;
   }
 }
