@@ -9,12 +9,36 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
  * Values used the very first time the app boots against a fresh database,
  * before the seed script has inserted the singleton `app_settings` row.
  */
-const FALLBACK_SETTINGS: AppSettings = {
+export const FALLBACK_SETTINGS: AppSettings = {
   allowRegistration: true,
   enableGoogleLogin: true,
+  storeName: 'AURA',
+  tagline: 'Next-gen tech & streetwear',
+  logoUrl: null,
+  faviconUrl: null,
+  supportEmail: null,
+  supportPhone: null,
+  whatsappNumber: null,
+  storeAddress: null,
+  businessHours: null,
+  facebookUrl: null,
+  instagramUrl: null,
+  youtubeUrl: null,
+  tiktokUrl: null,
+  shippingFeeInsideDhaka: 60,
+  shippingFeeOutsideDhaka: 120,
+  freeShippingThreshold: 10_000,
+  announcementEnabled: true,
+  announcementMessage: '100% authentic products · Cash on delivery nationwide · 7-day easy returns',
+  announcementPromotion: true,
+  metaTitle: null,
+  metaDescription: null,
 };
 
-const SETTINGS_SELECT = { allowRegistration: true, enableGoogleLogin: true } as const;
+// Selects exactly the AppSettings keys (and nothing else, e.g. id/updatedAt).
+const SETTINGS_SELECT = Object.fromEntries(
+  Object.keys(FALLBACK_SETTINGS).map((key) => [key, true]),
+) as { [K in keyof AppSettings]: true };
 
 @Injectable()
 export class SettingsService {
@@ -28,8 +52,9 @@ export class SettingsService {
   /**
    * Read-through cache in front of the `app_settings` singleton row.
    *
-   * This is read on every `register()` and `googleLogin()` call in
-   * AuthService, so caching it turns those hot paths from "extra Postgres
+   * This is read on every storefront render (branding, announcement),
+   * every checkout quote (shipping rules), and every `register()` /
+   * `googleLogin()` call in AuthService, so caching it turns those hot paths from "extra Postgres
    * round-trip per request" into "extra Redis round-trip, TTL-bounded". A
    * Redis outage degrades to hitting Postgres directly rather than failing
    * the request — this cache is a performance optimization, not a
@@ -44,7 +69,7 @@ export class SettingsService {
       select: SETTINGS_SELECT,
     });
 
-    const settings = row ?? FALLBACK_SETTINGS;
+    const settings: AppSettings = row ?? FALLBACK_SETTINGS;
     await this.writeCache(settings);
 
     return settings;
@@ -69,7 +94,10 @@ export class SettingsService {
   private async readCache(): Promise<AppSettings | null> {
     try {
       const cached = await this.redis.client.get(SETTINGS_CACHE_KEY);
-      return cached ? (JSON.parse(cached) as AppSettings) : null;
+      if (!cached) return null;
+      // A snapshot cached before new settings existed is missing keys — fill
+      // them from the defaults rather than serving undefined.
+      return { ...FALLBACK_SETTINGS, ...(JSON.parse(cached) as Partial<AppSettings>) };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Settings cache read failed, falling back to database: ${message}`);

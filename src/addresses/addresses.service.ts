@@ -106,11 +106,34 @@ export class AddressesService {
   }
 
   async remove(userId: number, id: number): Promise<void> {
-    const result = await this.prisma.address.deleteMany({ where: { id, userId } });
+    await this.prisma.$transaction(async (tx) => {
+      const address = await tx.address.findFirst({
+        where: { id, userId },
+        select: { isDefault: true },
+      });
+      if (!address) {
+        throw new NotFoundException('Address does not exist for the current user.');
+      }
 
-    if (result.count === 0) {
-      throw new NotFoundException('Address does not exist for the current user.');
-    }
+      await tx.address.delete({ where: { id }, select: { id: true } });
+
+      // Never leave a customer without a default while they still have
+      // addresses: the most recently added one takes over.
+      if (address.isDefault) {
+        const next = await tx.address.findFirst({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        if (next) {
+          await tx.address.update({
+            where: { id: next.id },
+            data: { isDefault: true },
+            select: { id: true },
+          });
+        }
+      }
+    });
   }
 
   private toEntity(address: AddressRow): AddressEntity {

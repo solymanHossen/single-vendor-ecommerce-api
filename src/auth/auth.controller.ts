@@ -28,6 +28,7 @@ import { RegisterSchema, type RegisterDto } from './dto/register.dto';
 import { LoginSchema, type LoginDto } from './dto/login.dto';
 import { ForgotPasswordSchema, type ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordSchema, type ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordSchema, type ChangePasswordDto } from './dto/change-password.dto';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AUTH_THROTTLE_KEY } from '../common/constants/throttler.constants';
 import { Public } from './decorators/public.decorator';
@@ -172,6 +173,25 @@ export class AuthController {
 
     this.clearRefreshTokenCookie(res);
     return { message: 'Logged out successfully', data: null };
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  // Guessing the current password is a brute-force surface, like login.
+  @Throttle({ [AUTH_THROTTLE_KEY]: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: "Change the signed-in user's password" })
+  @ApiBody({ schema: z.toJSONSchema(ChangePasswordSchema) as unknown as ApiBodySchema })
+  @ApiResponse({ status: 200, description: 'Password changed' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation failed, wrong current password, or no password set (Google account)',
+  })
+  async changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodValidationPipe(ChangePasswordSchema)) dto: ChangePasswordDto,
+  ): Promise<{ message: string; data: null }> {
+    return this.authService.changePassword(user.id, dto);
   }
 
   @Post('logout-all')

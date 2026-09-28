@@ -3,13 +3,9 @@ import { OrderStatus } from '@prisma/client';
 /** Single source of truth for the enum's members, reused by every Zod schema that validates a status. */
 export const ORDER_STATUS_VALUES = Object.values(OrderStatus) as [OrderStatus, ...OrderStatus[]];
 
-// ── Shipping (BDT) ──────────────────────────────────────────────────────────
-// Same values the order seeder uses, so seeded history and live checkout agree.
-export const SHIPPING_FEE_INSIDE_DHAKA = 60;
-export const SHIPPING_FEE_OUTSIDE_DHAKA = 120;
-/** Subtotal (before coupon) at which delivery becomes free. */
-export const FREE_SHIPPING_THRESHOLD = 10_000;
-
+// ── Shipping ────────────────────────────────────────────────────────────────
+// Fees and the free-delivery threshold are store settings (SettingsService);
+// only the zone rule lives here.
 export function isInsideDhaka(city: string): boolean {
   return city.trim().toLowerCase() === 'dhaka';
 }
@@ -27,6 +23,13 @@ export const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatu
   CANCELLED: [],
   RETURNED: [],
 };
+
+/** Orders the customer is still waiting on. */
+export const IN_PROGRESS_STATUSES: readonly OrderStatus[] = [
+  OrderStatus.PENDING,
+  OrderStatus.PROCESSING,
+  OrderStatus.SHIPPED,
+];
 
 /** Customers may cancel on their own only before the order is being prepared. */
 export const CUSTOMER_CANCELLABLE_STATUSES: readonly OrderStatus[] = [OrderStatus.PENDING];

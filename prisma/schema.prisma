@@ -101,10 +101,49 @@ model Wishlist {
   @@map("wishlists")
 }
 
+/// Singleton (id = 1) holding every store-wide setting. Edited by
+/// SUPER_ADMIN in the admin console; read publicly (cached) by the storefront.
 model AppSetting {
   id                Int     @id @default(1)
+  // ── Customer accounts ──
   allowRegistration Boolean @default(true) @map("allow_registration")
   enableGoogleLogin Boolean @default(true) @map("enable_google_login")
+
+  // ── Branding ──
+  storeName  String  @default("AURA") @map("store_name")
+  tagline    String  @default("Next-gen tech & streetwear") @map("tagline")
+  logoUrl    String? @map("logo_url")
+  faviconUrl String? @map("favicon_url")
+
+  // ── Contact ──
+  supportEmail   String? @map("support_email")
+  supportPhone   String? @map("support_phone")
+  whatsappNumber String? @map("whatsapp_number")
+  storeAddress   String? @map("store_address")
+  businessHours  String? @map("business_hours")
+
+  // ── Social ──
+  facebookUrl  String? @map("facebook_url")
+  instagramUrl String? @map("instagram_url")
+  youtubeUrl   String? @map("youtube_url")
+  tiktokUrl    String? @map("tiktok_url")
+
+  // ── Shipping (whole BDT) ──
+  shippingFeeInsideDhaka  Int @default(60) @map("shipping_fee_inside_dhaka")
+  shippingFeeOutsideDhaka Int @default(120) @map("shipping_fee_outside_dhaka")
+  freeShippingThreshold   Int @default(10000) @map("free_shipping_threshold")
+
+  // ── Announcement bar ──
+  announcementEnabled   Boolean @default(true) @map("announcement_enabled")
+  announcementMessage   String  @default("100% authentic products · Cash on delivery nationwide · 7-day easy returns") @map("announcement_message")
+  // When a coupon campaign is running, feature it instead of the message.
+  announcementPromotion Boolean @default(true) @map("announcement_promotion")
+
+  // ── SEO ──
+  metaTitle       String? @map("meta_title")
+  metaDescription String? @map("meta_description")
+
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("app_settings")
 }

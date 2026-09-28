@@ -37,6 +37,17 @@ describe('SettingsController', () => {
     });
   });
 
+  describe('getPublicSettings()', () => {
+    it('serves the same cached settings to the storefront', async () => {
+      mockSettingsService.getSettings.mockResolvedValueOnce({ storeName: 'AURA' });
+
+      const result = await controller.getPublicSettings();
+
+      expect(mockSettingsService.getSettings).toHaveBeenCalledTimes(1);
+      expect(result.data.storeName).toBe('AURA');
+    });
+  });
+
   describe('updateSettings()', () => {
     it('delegates the partial update to the service and returns the result', async () => {
       mockSettingsService.updateSettings.mockResolvedValueOnce({

@@ -169,18 +169,63 @@ describe('AddressesService', () => {
   });
 
   describe('remove()', () => {
-    it('deletes the address when owned by the user', async () => {
-      mockPrisma.address.deleteMany.mockResolvedValueOnce({ count: 1 });
+    const tx = {
+      address: { findFirst: jest.fn(), delete: jest.fn(), update: jest.fn() },
+    };
+    beforeEach(() => {
+      tx.address.findFirst.mockReset();
+      tx.address.delete.mockReset();
+      tx.address.update.mockReset();
+      mockPrisma.$transaction.mockImplementationOnce((run: (client: typeof tx) => unknown) =>
+        run(tx),
+      );
+    });
+
+    it('deletes a non-default address and leaves the default alone', async () => {
+      tx.address.findFirst.mockResolvedValueOnce({ isDefault: false });
 
       await service.remove(10, 1);
 
-      expect(mockPrisma.address.deleteMany).toHaveBeenCalledWith({ where: { id: 1, userId: 10 } });
+      expect(tx.address.findFirst).toHaveBeenCalledWith({
+        where: { id: 1, userId: 10 },
+        select: { isDefault: true },
+      });
+      expect(tx.address.delete).toHaveBeenCalledWith({ where: { id: 1 }, select: { id: true } });
+      expect(tx.address.update).not.toHaveBeenCalled();
+    });
+
+    it('promotes the newest remaining address when the default is deleted', async () => {
+      tx.address.findFirst
+        .mockResolvedValueOnce({ isDefault: true })
+        .mockResolvedValueOnce({ id: 7 });
+
+      await service.remove(10, 1);
+
+      expect(tx.address.findFirst).toHaveBeenLastCalledWith({
+        where: { userId: 10 },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      expect(tx.address.update).toHaveBeenCalledWith({
+        where: { id: 7 },
+        data: { isDefault: true },
+        select: { id: true },
+      });
+    });
+
+    it('is fine deleting the last address', async () => {
+      tx.address.findFirst.mockResolvedValueOnce({ isDefault: true }).mockResolvedValueOnce(null);
+
+      await service.remove(10, 1);
+
+      expect(tx.address.update).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when not owned by the user', async () => {
-      mockPrisma.address.deleteMany.mockResolvedValueOnce({ count: 0 });
+      tx.address.findFirst.mockResolvedValueOnce(null);
 
       await expect(service.remove(10, 999)).rejects.toThrow(NotFoundException);
+      expect(tx.address.delete).not.toHaveBeenCalled();
     });
   });
 

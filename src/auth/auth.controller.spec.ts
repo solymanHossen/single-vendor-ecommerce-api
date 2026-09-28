@@ -34,6 +34,7 @@ const mockAuthUser: AuthUser = {
 };
 
 const mockAuthService = {
+  changePassword: jest.fn(),
   register: jest.fn(),
   login: jest.fn(),
   refresh: jest.fn(),
@@ -239,6 +240,18 @@ describe('AuthController', () => {
         path: '/api/v1/auth/refresh',
       });
       expect(result.message).toBe('Logged out successfully');
+    });
+  });
+
+  describe('changePassword()', () => {
+    it('changes the password for the signed-in user', async () => {
+      const result = { message: 'Password changed successfully', data: null };
+      mockAuthService.changePassword.mockResolvedValueOnce(result);
+      const user = { id: 7, email: 'a@b.com', role: 'USER', isActive: true } as const;
+      const dto = { currentPassword: 'OldPass123', newPassword: 'NewPass456' };
+
+      await expect(controller.changePassword(user, dto)).resolves.toEqual(result);
+      expect(mockAuthService.changePassword).toHaveBeenCalledWith(7, dto);
     });
   });
 

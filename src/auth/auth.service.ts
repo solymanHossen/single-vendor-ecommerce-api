@@ -1,9 +1,15 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
+import type { ChangePasswordDto } from './dto/change-password.dto';
 import { PrismaService } from '../database/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { MailService } from '../mail/mail.service';
@@ -222,6 +228,41 @@ export class AuthService {
     // fallback would nest this whole { message } object inside itself as
     // `data`, duplicating the message in the response body.
     return { message: 'Logged out successfully', data: null };
+  }
+
+  /**
+   * Signed-in password change. Existing sessions are left alone on purpose:
+   * the web session renews through a refresh-token cookie, and revoking it
+   * here would silently log the user out minutes later. "Sign out of all
+   * devices" (logoutAll) stays an explicit, separate action.
+   */
+  async changePassword(
+    userId: number,
+    dto: ChangePasswordDto,
+  ): Promise<{ message: string; data: null }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { password: true },
+    });
+
+    // 400, not 401: a wrong current password must not look like an expired
+    // session (the frontend signs the user out on 401).
+    if (!user.password) {
+      throw new BadRequestException(
+        'Your account signs in with Google and has no password yet. Use “Forgot password” to create one.',
+      );
+    }
+    if (!(await bcrypt.compare(dto.currentPassword, user.password))) {
+      throw new BadRequestException('Your current password is incorrect.');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await bcrypt.hash(dto.newPassword, this.bcryptRounds) },
+      select: { id: true },
+    });
+
+    return { message: 'Password changed successfully', data: null };
   }
 
   async logoutAll(userId: number): Promise<{ message: string; data: null }> {

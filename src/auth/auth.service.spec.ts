@@ -1,9 +1,10 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { ChangePasswordSchema } from './dto/change-password.dto';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../database/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -30,6 +31,7 @@ const mockPrisma = {
   user: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
   },
@@ -384,6 +386,66 @@ describe('AuthService', () => {
           data: { revokedAt: expect.any(Date) },
         }),
       );
+    });
+  });
+
+  describe('changePassword()', () => {
+    const dto = { currentPassword: 'OldPass123', newPassword: 'NewPass456' };
+
+    it('re-hashes and stores the new password when the current one matches', async () => {
+      mockPrisma.user.findUniqueOrThrow.mockResolvedValueOnce({ password: '$2b$12$old' });
+
+      const result = await service.changePassword(7, dto);
+
+      expect(bcrypt.compare).toHaveBeenCalledWith('OldPass123', '$2b$12$old');
+      expect(bcrypt.hash).toHaveBeenCalledWith('NewPass456', expect.any(Number));
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 7 },
+        data: { password: '$2b$12$hashedpassword' },
+        select: { id: true },
+      });
+      expect(result.message).toBe('Password changed successfully');
+    });
+
+    it('refuses a wrong current password with 400, not 401', async () => {
+      mockPrisma.user.findUniqueOrThrow.mockResolvedValueOnce({ password: '$2b$12$old' });
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+
+      await expect(service.changePassword(7, dto)).rejects.toThrow(
+        new BadRequestException('Your current password is incorrect.'),
+      );
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('explains that Google-only accounts have no password yet', async () => {
+      mockPrisma.user.findUniqueOrThrow.mockResolvedValueOnce({ password: null });
+
+      await expect(service.changePassword(7, dto)).rejects.toBeInstanceOf(BadRequestException);
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+    });
+
+    it('does not revoke existing sessions', async () => {
+      mockPrisma.user.findUniqueOrThrow.mockResolvedValueOnce({ password: '$2b$12$old' });
+
+      await service.changePassword(7, dto);
+
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ChangePasswordSchema', () => {
+    it('applies the shared strength policy and refuses reuse', () => {
+      expect(
+        ChangePasswordSchema.safeParse({ currentPassword: 'x', newPassword: 'weak' }).success,
+      ).toBe(false);
+      expect(
+        ChangePasswordSchema.safeParse({ currentPassword: 'SamePass1', newPassword: 'SamePass1' })
+          .success,
+      ).toBe(false);
+      expect(
+        ChangePasswordSchema.safeParse({ currentPassword: 'OldPass1', newPassword: 'NewPass22' })
+          .success,
+      ).toBe(true);
     });
   });
 

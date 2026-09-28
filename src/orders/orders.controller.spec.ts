@@ -13,6 +13,7 @@ const mockOrdersService = {
   findAll: jest.fn(),
   findOne: jest.fn(),
   cancel: jest.fn(),
+  summary: jest.fn(),
   updateStatus: jest.fn(),
 };
 
@@ -66,6 +67,15 @@ describe('OrdersController', () => {
 
     expect(mockOrdersService.findAll).toHaveBeenCalledWith(currentUser, query);
     expect(result).toEqual({ message: 'Orders retrieved successfully', data: page });
+  });
+
+  it("summary() is always the caller's own", async () => {
+    mockOrdersService.summary.mockResolvedValueOnce({ totalOrders: 3 });
+
+    const result = await controller.summary(currentUser);
+
+    expect(mockOrdersService.summary).toHaveBeenCalledWith(7);
+    expect(result.message).toBe('Order summary retrieved successfully');
   });
 
   it('findOne() delegates with the current user and id', async () => {

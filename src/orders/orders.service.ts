@@ -13,6 +13,8 @@ import { linePrice, variantLabel } from '../carts/cart-pricing';
 import type { CartEntity } from '../carts/entities/cart.entity';
 import type { CartIdentity } from '../carts/interfaces/cart-identity.interface';
 import { CouponsService } from '../coupons/coupons.service';
+import { SettingsService } from '../settings/settings.service';
+import type { ShippingRules } from '../settings/interfaces/app-settings.interface';
 import type { CouponValidationEntity } from '../coupons/entities/coupon.entity';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { PlaceOrderDto } from './dto/place-order.dto';
@@ -21,12 +23,10 @@ import { QuoteOrderDto } from './dto/quote-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import {
   CUSTOMER_CANCELLABLE_STATUSES,
-  FREE_SHIPPING_THRESHOLD,
+  IN_PROGRESS_STATUSES,
   ORDER_STATUS_VALUES,
   ORDER_TRANSITIONS,
   RESTOCK_ON_CANCEL_STATUSES,
-  SHIPPING_FEE_INSIDE_DHAKA,
-  SHIPPING_FEE_OUTSIDE_DHAKA,
   isInsideDhaka,
 } from './orders.constants';
 import {
@@ -37,6 +37,7 @@ import {
   OrderPaymentEntity,
   OrderQuoteEntity,
   OrderStatusCountEntity,
+  OrderSummaryEntity,
   PaginatedOrdersEntity,
   PaginationMetaEntity,
   QuoteCouponEntity,
@@ -115,11 +116,16 @@ interface Totals {
 
 const ZERO = new Prisma.Decimal(0);
 
-function shippingFor(city: string | null, subtotal: Prisma.Decimal): Prisma.Decimal | null {
+/** Delivery fee from the store's shipping settings; null until the city is known. */
+function shippingFor(
+  city: string | null,
+  subtotal: Prisma.Decimal,
+  rules: ShippingRules,
+): Prisma.Decimal | null {
   if (city === null) return null;
-  if (subtotal.greaterThanOrEqualTo(FREE_SHIPPING_THRESHOLD)) return ZERO;
+  if (subtotal.greaterThanOrEqualTo(rules.freeShippingThreshold)) return ZERO;
   return new Prisma.Decimal(
-    isInsideDhaka(city) ? SHIPPING_FEE_INSIDE_DHAKA : SHIPPING_FEE_OUTSIDE_DHAKA,
+    isInsideDhaka(city) ? rules.shippingFeeInsideDhaka : rules.shippingFeeOutsideDhaka,
   );
 }
 
@@ -127,9 +133,10 @@ function totalsFor(
   subtotal: Prisma.Decimal,
   coupon: CouponValidationEntity | null,
   city: string | null,
+  rules: ShippingRules,
 ): Totals {
   const discount = coupon?.discountAmount ?? ZERO;
-  const shipping = shippingFor(city, subtotal);
+  const shipping = shippingFor(city, subtotal, rules);
   return {
     subtotal,
     discount,
@@ -163,13 +170,14 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly cartsService: CartsService,
     private readonly couponsService: CouponsService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   // ── Checkout ──────────────────────────────────────────────────────────────
 
   /** Live totals for the checkout summary. Reads only — reserves nothing. */
   async quote(userId: number, dto: QuoteOrderDto): Promise<OrderQuoteEntity> {
-    const [cart, address] = await Promise.all([
+    const [cart, address, rules] = await Promise.all([
       this.cartsService.getCart({ type: 'user', id: userId }),
       dto.addressId !== undefined
         ? this.prisma.address.findFirst({
@@ -177,6 +185,7 @@ export class OrdersService {
             select: { city: true },
           })
         : Promise.resolve(null),
+      this.settingsService.getSettings(),
     ]);
     if (dto.addressId !== undefined && !address) {
       throw new NotFoundException('Address does not exist for the current user.');
@@ -195,8 +204,8 @@ export class OrdersService {
     }
 
     const city = address?.city ?? null;
-    const totals = totalsFor(cart.totalPrice, coupon, city);
-    const remaining = new Prisma.Decimal(FREE_SHIPPING_THRESHOLD).minus(cart.totalPrice);
+    const totals = totalsFor(cart.totalPrice, coupon, city, rules);
+    const remaining = new Prisma.Decimal(rules.freeShippingThreshold).minus(cart.totalPrice);
 
     return new OrderQuoteEntity({
       itemCount: cart.totalItems,
@@ -212,7 +221,7 @@ export class OrdersService {
           })
         : null,
       couponError,
-      freeShippingThreshold: new Prisma.Decimal(FREE_SHIPPING_THRESHOLD),
+      freeShippingThreshold: new Prisma.Decimal(rules.freeShippingThreshold),
       amountToFreeShipping: remaining.greaterThan(0) ? remaining : ZERO,
       insideDhaka: city === null ? null : isInsideDhaka(city),
       problems: cart.items.length === 0 ? ['Your cart is empty.'] : cartProblems(cart),
@@ -248,7 +257,10 @@ export class OrdersService {
     }
 
     const identity: CartIdentity = { type: 'user', id: userId };
-    const cart = await this.cartsService.getCart(identity);
+    const [cart, rules] = await Promise.all([
+      this.cartsService.getCart(identity),
+      this.settingsService.getSettings(),
+    ]);
 
     if (cart.items.length === 0) {
       throw new BadRequestException('Cannot place an order with an empty cart.');
@@ -282,7 +294,7 @@ export class OrdersService {
 
       await this.takeStock(tx, priced);
 
-      const totals = totalsFor(subtotal, coupon, address.city);
+      const totals = totalsFor(subtotal, coupon, address.city, rules);
       const snapshot: ShippingAddressEntityInput = {
         recipientName,
         phone,
@@ -369,6 +381,35 @@ export class OrdersService {
       statusCounts: ORDER_STATUS_VALUES.map(
         (status) => new OrderStatusCountEntity({ status, count: countByStatus.get(status) ?? 0 }),
       ),
+    });
+  }
+
+  /** The caller's own history at a glance — always scoped to them, even for staff. */
+  async summary(userId: number): Promise<OrderSummaryEntity> {
+    const [grouped, spent, active] = await Promise.all([
+      this.prisma.order.groupBy({ by: ['status'], where: { userId }, _count: { _all: true } }),
+      this.prisma.order.aggregate({
+        where: { userId, status: OrderStatus.DELIVERED },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.order.findFirst({
+        where: { userId, status: { in: [...IN_PROGRESS_STATUSES] } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: ORDER_SELECT,
+      }),
+    ]);
+
+    const count = (statuses: readonly OrderStatus[]) =>
+      grouped
+        .filter((group) => statuses.includes(group.status))
+        .reduce((sum, group) => sum + group._count._all, 0);
+
+    return new OrderSummaryEntity({
+      totalOrders: grouped.reduce((sum, group) => sum + group._count._all, 0),
+      inProgress: count(IN_PROGRESS_STATUSES),
+      delivered: count([OrderStatus.DELIVERED]),
+      totalSpent: spent._sum.totalAmount ?? ZERO,
+      activeOrder: active ? this.toEntity(active) : null,
     });
   }
 

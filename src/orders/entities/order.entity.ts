@@ -433,3 +433,33 @@ export class OrderQuoteEntity {
     this.problems = partial.problems;
   }
 }
+
+/** A customer's order history at a glance (account dashboard). */
+export class OrderSummaryEntity {
+  @ApiProperty({ example: 12 })
+  totalOrders: number;
+
+  @ApiProperty({ example: 1, description: 'Pending, processing or shipped' })
+  inProgress: number;
+
+  @ApiProperty({ example: 10 })
+  delivered: number;
+
+  @ApiProperty({ type: String, example: '48250.00', description: 'Sum of delivered order totals' })
+  totalSpent: Prisma.Decimal;
+
+  @ApiProperty({
+    type: () => OrderEntity,
+    nullable: true,
+    description: 'Most recent order still on its way, if any',
+  })
+  activeOrder: OrderEntity | null;
+
+  constructor(partial: OrderSummaryEntity) {
+    this.totalOrders = partial.totalOrders;
+    this.inProgress = partial.inProgress;
+    this.delivered = partial.delivered;
+    this.totalSpent = partial.totalSpent;
+    this.activeOrder = partial.activeOrder;
+  }
+}

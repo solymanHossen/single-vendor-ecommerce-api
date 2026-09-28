@@ -6,7 +6,18 @@ import { PrismaService } from '../database/prisma.service';
 import { CartsService } from '../carts/carts.service';
 import { CouponsService } from '../coupons/coupons.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
-import { FREE_SHIPPING_THRESHOLD, ORDER_TRANSITIONS } from './orders.constants';
+import { ORDER_TRANSITIONS } from './orders.constants';
+import { SettingsService } from '../settings/settings.service';
+
+const FREE_SHIPPING_THRESHOLD = 10_000;
+const mockSettingsService = {
+  getSettings: jest.fn(),
+};
+const shippingRules = {
+  shippingFeeInsideDhaka: 60,
+  shippingFeeOutsideDhaka: 120,
+  freeShippingThreshold: FREE_SHIPPING_THRESHOLD,
+};
 
 const D = (value: number) => new Prisma.Decimal(value);
 
@@ -31,6 +42,7 @@ const mockPrisma = {
     findUniqueOrThrow: jest.fn(),
     count: jest.fn(),
     groupBy: jest.fn(),
+    aggregate: jest.fn(),
   },
   $transaction: jest.fn(),
 };
@@ -136,6 +148,7 @@ describe('OrdersService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CartsService, useValue: mockCartsService },
         { provide: CouponsService, useValue: mockCouponsService },
+        { provide: SettingsService, useValue: mockSettingsService },
       ],
     }).compile();
 
@@ -151,6 +164,7 @@ describe('OrdersService', () => {
     ]);
     mockTx.$executeRaw.mockResolvedValue(1);
     mockTx.order.create.mockResolvedValue(orderRow);
+    mockSettingsService.getSettings.mockResolvedValue(shippingRules);
   });
 
   describe('quote()', () => {
@@ -435,6 +449,50 @@ describe('OrdersService', () => {
     });
   });
 
+  describe('summary()', () => {
+    it("counts the caller's own orders and surfaces the latest one in progress", async () => {
+      mockPrisma.order.groupBy.mockResolvedValueOnce([
+        { status: 'PENDING', _count: { _all: 1 } },
+        { status: 'SHIPPED', _count: { _all: 2 } },
+        { status: 'DELIVERED', _count: { _all: 5 } },
+        { status: 'CANCELLED', _count: { _all: 1 } },
+      ]);
+      mockPrisma.order.aggregate.mockResolvedValueOnce({ _sum: { totalAmount: D(48250) } });
+      mockPrisma.order.findFirst.mockResolvedValueOnce(orderRow);
+
+      const summary = await service.summary(7);
+
+      expect(mockPrisma.order.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 7 } }),
+      );
+      expect(mockPrisma.order.aggregate).toHaveBeenCalledWith({
+        where: { userId: 7, status: 'DELIVERED' },
+        _sum: { totalAmount: true },
+      });
+      expect(summary).toEqual(
+        expect.objectContaining({
+          totalOrders: 9,
+          inProgress: 3,
+          delivered: 5,
+          totalSpent: D(48250),
+        }),
+      );
+      expect(summary.activeOrder?.id).toBe(301);
+    });
+
+    it('handles a customer with no orders', async () => {
+      mockPrisma.order.groupBy.mockResolvedValueOnce([]);
+      mockPrisma.order.aggregate.mockResolvedValueOnce({ _sum: { totalAmount: null } });
+      mockPrisma.order.findFirst.mockResolvedValueOnce(null);
+
+      const summary = await service.summary(7);
+
+      expect(summary.totalOrders).toBe(0);
+      expect(summary.totalSpent).toEqual(D(0));
+      expect(summary.activeOrder).toBeNull();
+    });
+  });
+
   describe('findOne()', () => {
     it('scopes the lookup to the caller for a plain USER', async () => {
       mockPrisma.order.findFirst.mockResolvedValueOnce(orderRow);
@@ -575,6 +633,22 @@ describe('OrdersService', () => {
         expect.objectContaining({ data: { paymentStatus: 'REFUNDED' } }),
       );
     });
+  });
+
+  it('prices delivery from the store settings, not constants', async () => {
+    mockSettingsService.getSettings.mockResolvedValueOnce({
+      shippingFeeInsideDhaka: 80,
+      shippingFeeOutsideDhaka: 150,
+      freeShippingThreshold: 2000,
+    });
+    mockCartsService.getCart.mockResolvedValueOnce(cart([cartItem({ subtotal: D(1500) })]));
+    mockPrisma.address.findFirst.mockResolvedValueOnce({ city: 'Dhaka' });
+
+    const quote = await service.quote(7, { addressId: 1 });
+
+    expect(quote.shippingFee).toEqual(D(80));
+    expect(quote.freeShippingThreshold).toEqual(D(2000));
+    expect(quote.amountToFreeShipping).toEqual(D(500));
   });
 
   it('keeps terminal statuses terminal', () => {

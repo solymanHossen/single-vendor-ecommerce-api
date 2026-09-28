@@ -32,7 +32,12 @@ import { PlaceOrderSchema, type PlaceOrderDto } from './dto/place-order.dto';
 import { OrderQuerySchema, type OrderQueryDto } from './dto/query-order.dto';
 import { QuoteOrderSchema, type QuoteOrderDto } from './dto/quote-order.dto';
 import { UpdateOrderStatusSchema, type UpdateOrderStatusDto } from './dto/update-order-status.dto';
-import { OrderEntity, OrderQuoteEntity, PaginatedOrdersEntity } from './entities/order.entity';
+import {
+  OrderEntity,
+  OrderQuoteEntity,
+  OrderSummaryEntity,
+  PaginatedOrdersEntity,
+} from './entities/order.entity';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -125,6 +130,17 @@ export class OrdersController {
   ): Promise<{ message: string; data: PaginatedOrdersEntity }> {
     const result = await this.ordersService.findAll(user, query);
     return { message: 'Orders retrieved successfully', data: result };
+  }
+
+  // Declared before ':id' so "summary" is never parsed as an order id.
+  @Get('summary')
+  @ApiOperation({ summary: "The caller's own order stats and current order (account dashboard)" })
+  @ApiResponse({ status: HttpStatus.OK, type: OrderSummaryEntity })
+  async summary(
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ message: string; data: OrderSummaryEntity }> {
+    const data = await this.ordersService.summary(user.id);
+    return { message: 'Order summary retrieved successfully', data };
   }
 
   @Get(':id')
