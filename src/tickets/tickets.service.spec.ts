@@ -1,103 +1,105 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { Role } from '@prisma/client';
 import { TicketsService } from './tickets.service';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
-import { ALL_PERMISSIONS } from '../access/permissions';
+
+const customer: AuthUser = {
+  id: 7,
+  email: 'c@example.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
+
+const person = { id: 7, name: 'Nusrat Jahan', email: 'c@example.com', avatarUrl: null };
+const staff = { id: 2, name: 'Admin One', email: 'admin@example.com', avatarUrl: null };
+
+const detailRow = (overrides: Record<string, unknown> = {}) => ({
+  id: 5,
+  userId: 7,
+  subject: 'Where is my order?',
+  category: 'DELIVERY',
+  status: 'WAITING',
+  priority: 'MEDIUM',
+  orderId: null,
+  awaitingStaff: false,
+  lastMessageAt: new Date('2026-09-02'),
+  lastStaffReplyAt: new Date('2026-09-02'),
+  customerReadAt: new Date('2026-09-01'),
+  createdAt: new Date('2026-09-01'),
+  satisfied: null,
+  firstResponseAt: new Date('2026-09-02'),
+  resolvedAt: null,
+  user: { ...person, createdAt: new Date('2025-01-01') },
+  assignee: staff,
+  order: null,
+  messages: [{ message: 'On its way!', senderId: 2, createdAt: new Date('2026-09-02') }],
+  _count: { messages: 2 },
+  ...overrides,
+});
 
 const mockPrisma = {
   order: { findFirst: jest.fn() },
   ticket: {
     create: jest.fn(),
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     count: jest.fn(),
-    findFirst: jest.fn(),
-    findUniqueOrThrow: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
+    fields: { customerReadAt: { name: 'customerReadAt' } },
   },
-  ticketMessage: { create: jest.fn() },
+  ticketMessage: { create: jest.fn(), findMany: jest.fn() },
   $transaction: jest.fn(),
 };
 
-const sampleRow = {
-  id: 1,
-  userId: 7,
-  orderId: null,
-  subject: 'Order not received',
-  status: 'OPEN' as const,
-  priority: 'MEDIUM' as const,
-  messages: [
-    {
-      id: 1,
-      message: 'Where is my order?',
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      sender: { id: 7, name: 'Jane Doe' },
-    },
-  ],
-  createdAt: new Date('2026-01-01T00:00:00.000Z'),
-  updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-};
-
-const regularUser: AuthUser = {
-  id: 7,
-  email: 'a@b.com',
-  role: Role.USER,
-  isActive: true,
-  permissions: [],
-};
-const adminUser: AuthUser = {
-  id: 99,
-  email: 'admin@b.com',
-  role: Role.ADMIN,
-  isActive: true,
-  permissions: [...ALL_PERMISSIONS],
-};
-
-describe('TicketsService', () => {
+describe('TicketsService (customer)', () => {
   let service: TicketsService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [TicketsService, { provide: PrismaService, useValue: mockPrisma }],
     }).compile();
-
-    service = module.get<TicketsService>(TicketsService);
-    jest.clearAllMocks();
+    service = module.get(TicketsService);
+    jest.resetAllMocks();
+    mockPrisma.$transaction.mockImplementation((ops: unknown[]) => Promise.resolve(ops));
+    mockPrisma.ticketMessage.findMany.mockResolvedValue([]);
+    mockPrisma.ticketMessage.create.mockImplementation((args: unknown) => args);
+    mockPrisma.ticket.update.mockImplementation((args: unknown) => args);
   });
 
   describe('create()', () => {
-    it('creates a ticket with its first message', async () => {
-      mockPrisma.ticket.create.mockResolvedValueOnce(sampleRow);
+    it('opens a request in the staff queue with the category’s priority', async () => {
+      mockPrisma.ticket.create.mockResolvedValueOnce({ id: 5 });
+      mockPrisma.ticket.findFirst.mockResolvedValueOnce(detailRow({ status: 'OPEN' }));
 
-      const result = await service.create(7, {
-        subject: 'Order not received',
-        priority: 'MEDIUM',
-        message: 'Where is my order?',
+      await service.create(customer, {
+        category: 'PAYMENT',
+        subject: 'Charged twice',
+        message: 'I was charged twice for order 12.',
+        attachments: [],
       });
 
-      expect(mockPrisma.ticket.create).toHaveBeenCalledWith({
-        data: {
-          userId: 7,
-          orderId: undefined,
-          subject: 'Order not received',
-          priority: 'MEDIUM',
-          messages: { create: [{ senderId: 7, message: 'Where is my order?' }] },
-        },
-        select: expect.any(Object),
+      const args = mockPrisma.ticket.create.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(args.data).toMatchObject({
+        userId: 7,
+        priority: 'HIGH',
+        awaitingStaff: true,
+        category: 'PAYMENT',
       });
-      expect(result.messages[0]?.sender.name).toBe('Jane Doe');
     });
 
-    it('throws NotFoundException when orderId does not belong to the user', async () => {
+    it('refuses an order that is not the customer’s', async () => {
       mockPrisma.order.findFirst.mockResolvedValueOnce(null);
-
       await expect(
-        service.create(7, {
-          subject: 'Order not received',
-          priority: 'MEDIUM',
-          orderId: 999,
-          message: 'Where is my order?',
+        service.create(customer, {
+          category: 'ORDER',
+          subject: 'Help',
+          message: 'Something about my order',
+          orderId: 99,
+          attachments: [],
         }),
       ).rejects.toThrow(NotFoundException);
       expect(mockPrisma.ticket.create).not.toHaveBeenCalled();
@@ -105,91 +107,118 @@ describe('TicketsService', () => {
   });
 
   describe('findAll()', () => {
-    it('forces the where clause to the caller for a plain USER', async () => {
-      mockPrisma.$transaction.mockResolvedValueOnce([[sampleRow], 1]);
+    it('only lists the customer’s own active requests and flags unread replies', async () => {
+      mockPrisma.$transaction.mockResolvedValueOnce([[detailRow()], 1]);
+      mockPrisma.ticket.findMany.mockImplementation((args: unknown) => args);
 
-      await service.findAll(regularUser, { page: 1, limit: 20, sortOrder: 'desc', userId: 999 });
+      const page = await service.findAll(customer, { page: 1, limit: 20, state: 'active' });
 
-      expect(mockPrisma.ticket.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { userId: 7 } }),
-      );
-    });
-
-    it('honors query.userId for ADMIN/SUPER_ADMIN callers', async () => {
-      mockPrisma.$transaction.mockResolvedValueOnce([[], 0]);
-
-      await service.findAll(adminUser, { page: 1, limit: 20, sortOrder: 'desc', userId: 42 });
-
-      expect(mockPrisma.ticket.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { userId: 42 } }),
-      );
+      const [findArgs] = mockPrisma.$transaction.mock.calls[0][0] as [{ where: unknown }];
+      expect(findArgs.where).toEqual({ userId: 7, status: { notIn: ['RESOLVED', 'CLOSED'] } });
+      expect(page.items[0]?.unread).toBe(true);
+      expect(page.items[0]?.preview).toMatchObject({ text: 'On its way!', fromStaff: true });
+      // Customers never see staff email addresses.
+      expect(page.items[0]?.assignee?.email).toBeNull();
+      expect(page.items[0]?.customer).toBeNull();
     });
   });
 
   describe('findOne()', () => {
-    it('scopes the lookup to the caller for a plain USER', async () => {
-      mockPrisma.ticket.findFirst.mockResolvedValueOnce(sampleRow);
+    it('marks replies read and hides internal entries', async () => {
+      mockPrisma.ticket.updateMany.mockResolvedValueOnce({ count: 1 });
+      mockPrisma.ticket.findFirst.mockResolvedValueOnce(detailRow());
 
-      await service.findOne(regularUser, 1);
+      await service.findOne(customer, 5);
 
-      expect(mockPrisma.ticket.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 1, userId: 7 } }),
+      expect(mockPrisma.ticket.updateMany).toHaveBeenCalledWith({
+        where: { id: 5, userId: 7 },
+        data: { customerReadAt: expect.any(Date) },
+      });
+      expect(mockPrisma.ticketMessage.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { ticketId: 5, isInternal: false } }),
       );
     });
 
-    it('throws NotFoundException when not found or not owned', async () => {
-      mockPrisma.ticket.findFirst.mockResolvedValueOnce(null);
-
-      await expect(service.findOne(regularUser, 999)).rejects.toThrow(NotFoundException);
+    it('404s for someone else’s request', async () => {
+      mockPrisma.ticket.updateMany.mockResolvedValueOnce({ count: 0 });
+      await expect(service.findOne(customer, 5)).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('addMessage()', () => {
-    it('appends a message when the caller owns the ticket', async () => {
-      mockPrisma.ticket.findFirst.mockResolvedValueOnce({ id: 1 });
-      mockPrisma.ticket.findUniqueOrThrow.mockResolvedValueOnce(sampleRow);
+    it('puts a waiting request back in the queue', async () => {
+      mockPrisma.ticket.findFirst
+        .mockResolvedValueOnce({ id: 5, status: 'WAITING' })
+        .mockResolvedValueOnce(detailRow({ status: 'OPEN' }));
 
-      await service.addMessage(regularUser, 1, { message: 'Any update?' });
+      await service.addMessage(customer, 5, { message: 'Still not here', attachments: [] });
 
-      expect(mockPrisma.ticketMessage.create).toHaveBeenCalledWith({
-        data: { ticketId: 1, senderId: 7, message: 'Any update?' },
-        select: { id: true },
+      const ops = mockPrisma.$transaction.mock.calls[0][0] as Array<{
+        data: Record<string, unknown>;
+      }>;
+      expect(ops).toHaveLength(2);
+      expect(ops[1]?.data).toMatchObject({ status: 'OPEN', awaitingStaff: true, resolvedAt: null });
+    });
+
+    it('reopens a resolved request with a timeline entry', async () => {
+      mockPrisma.ticket.findFirst
+        .mockResolvedValueOnce({ id: 5, status: 'RESOLVED' })
+        .mockResolvedValueOnce(detailRow({ status: 'OPEN' }));
+
+      await service.addMessage(customer, 5, {
+        message: 'Actually, one more thing',
+        attachments: [],
       });
+
+      const ops = mockPrisma.$transaction.mock.calls[0][0] as Array<{
+        data: Record<string, unknown>;
+      }>;
+      expect(ops[0]?.data).toMatchObject({ kind: 'EVENT', message: 'reopened this request' });
+      expect(ops[2]?.data).toMatchObject({ status: 'OPEN' });
     });
 
-    it('allows staff to reply on any ticket', async () => {
-      mockPrisma.ticket.findFirst.mockResolvedValueOnce({ id: 1 });
-      mockPrisma.ticket.findUniqueOrThrow.mockResolvedValueOnce(sampleRow);
-
-      await service.addMessage(adminUser, 1, { message: 'We are looking into it.' });
-
-      expect(mockPrisma.ticket.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 1 } }),
-      );
-    });
-
-    it('throws NotFoundException when the ticket is not found or not owned', async () => {
-      mockPrisma.ticket.findFirst.mockResolvedValueOnce(null);
-
-      await expect(service.addMessage(regularUser, 999, { message: 'Hi' })).rejects.toThrow(
-        NotFoundException,
-      );
-      expect(mockPrisma.ticketMessage.create).not.toHaveBeenCalled();
+    it('refuses a closed request', async () => {
+      mockPrisma.ticket.findFirst.mockResolvedValueOnce({ id: 5, status: 'CLOSED' });
+      await expect(
+        service.addMessage(customer, 5, { message: 'Hello?', attachments: [] }),
+      ).rejects.toThrow(ConflictException);
     });
   });
 
-  describe('updateStatus()', () => {
-    it('updates the ticket status', async () => {
-      mockPrisma.ticket.update.mockResolvedValueOnce({ ...sampleRow, status: 'CLOSED' });
+  describe('resolve() / rate()', () => {
+    it('resolves and leaves the queue', async () => {
+      mockPrisma.ticket.findFirst
+        .mockResolvedValueOnce({ id: 5, status: 'WAITING' })
+        .mockResolvedValueOnce(detailRow({ status: 'RESOLVED' }));
 
-      const result = await service.updateStatus(1, { status: 'CLOSED' });
+      await service.resolve(customer, 5);
 
-      expect(mockPrisma.ticket.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { status: 'CLOSED' },
-        select: expect.any(Object),
-      });
-      expect(result.status).toBe('CLOSED');
+      const ops = mockPrisma.$transaction.mock.calls[0][0] as Array<{
+        data: Record<string, unknown>;
+      }>;
+      expect(ops[1]?.data).toMatchObject({ status: 'RESOLVED', awaitingStaff: false });
+    });
+
+    it('only accepts a rating once resolved', async () => {
+      mockPrisma.ticket.findFirst.mockResolvedValueOnce({ id: 5, status: 'OPEN' });
+      await expect(service.rate(customer, 5, { satisfied: true })).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  it('counts unread replies with a column comparison', async () => {
+    mockPrisma.ticket.count.mockResolvedValueOnce(2);
+    await expect(service.unreadCount(7)).resolves.toBe(2);
+    expect(mockPrisma.ticket.count).toHaveBeenCalledWith({
+      where: {
+        userId: 7,
+        lastStaffReplyAt: { not: null },
+        OR: [
+          { customerReadAt: null },
+          { lastStaffReplyAt: { gt: mockPrisma.ticket.fields.customerReadAt } },
+        ],
+      },
     });
   });
 });

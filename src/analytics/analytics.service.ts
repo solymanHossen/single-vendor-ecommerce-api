@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { OrderStatus, PaymentStatus, Prisma, Role, TicketStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { LOW_STOCK_THRESHOLD } from '../products/products.constants';
 import {
@@ -376,7 +376,8 @@ export class AnalyticsService {
       }),
       this.prisma.returnRequest.count({ where: { status: 'PENDING' } }),
       this.prisma.ticket.count({
-        where: { status: { in: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS] } },
+        // The support queue: the customer spoke last and it isn't resolved.
+        where: { awaitingStaff: true },
       }),
       this.prisma.review.count({ where: { isApproved: false } }),
     ]);

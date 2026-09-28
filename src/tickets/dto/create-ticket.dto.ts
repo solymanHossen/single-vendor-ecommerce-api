@@ -1,12 +1,35 @@
 import { z } from 'zod';
-import { TICKET_PRIORITY_VALUES } from '../tickets.constants';
+import {
+  MAX_TICKET_ATTACHMENTS,
+  MAX_TICKET_MESSAGE_LENGTH,
+  TICKET_CATEGORY_VALUES,
+} from '../tickets.constants';
+
+/** Images uploaded through /storage/upload with folder=tickets. */
+export const TICKET_ATTACHMENTS = z
+  .array(
+    z
+      .string()
+      .url()
+      .max(500)
+      .regex(/\/tickets\/[^/]+$/, 'attachments must be uploaded to the "tickets" folder'),
+  )
+  .max(MAX_TICKET_ATTACHMENTS, `at most ${MAX_TICKET_ATTACHMENTS} attachments`)
+  .default([]);
+
+export const TICKET_MESSAGE = z
+  .string()
+  .trim()
+  .min(1, 'message is required')
+  .max(MAX_TICKET_MESSAGE_LENGTH);
 
 export const CreateTicketSchema = z
   .object({
+    category: z.enum(TICKET_CATEGORY_VALUES),
     subject: z.string().trim().min(3, 'subject must be at least 3 characters').max(200),
-    priority: z.enum(TICKET_PRIORITY_VALUES).default('MEDIUM'),
     orderId: z.number().int().positive().optional(),
-    message: z.string().trim().min(1, 'message is required').max(5000),
+    message: TICKET_MESSAGE.min(10, 'Tell us a little more (at least 10 characters)'),
+    attachments: TICKET_ATTACHMENTS,
   })
   // Reject unrecognized fields instead of silently stripping them.
   .strict();

@@ -203,7 +203,7 @@ export class OperationsEntity {
   @ApiProperty({ example: 5 })
   pendingReturns: number;
 
-  @ApiProperty({ example: 18, description: 'Tickets OPEN or IN_PROGRESS' })
+  @ApiProperty({ example: 18, description: 'Tickets waiting for a staff reply' })
   openTickets: number;
 
   @ApiProperty({ example: 39 })

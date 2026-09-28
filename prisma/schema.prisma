@@ -34,7 +34,8 @@ model User {
   reviews             Review[]
   reviewReplies       ReviewReply[]
   returnRequests      ReturnRequest[]
-  tickets             Ticket[]
+  tickets             Ticket[]        @relation("TicketCustomer")
+  assignedTickets     Ticket[]        @relation("TicketAssignee")
   ticketMessages      TicketMessage[]
   auditLogs           AuditLog[]
 
@@ -547,10 +548,33 @@ model ReturnRequest {
   @@map("return_requests")
 }
 
+/// OPEN → staff should look; IN_PROGRESS → staff working on it;
+/// WAITING → staff replied, waiting on the customer; RESOLVED → answered,
+/// reopens if the customer replies; CLOSED → final (auto after 7 days resolved).
 enum TicketStatus {
   OPEN
   IN_PROGRESS
+  WAITING
+  RESOLVED
   CLOSED
+}
+
+enum TicketCategory {
+  ORDER
+  DELIVERY
+  PAYMENT
+  RETURN
+  PRODUCT
+  ACCOUNT
+  OTHER
+}
+
+/// REPLY = a public message; NOTE = staff-only; EVENT = timeline entry
+/// (status/priority/assignment changes) written by the system.
+enum TicketMessageKind {
+  REPLY
+  NOTE
+  EVENT
 }
 
 enum TicketPriority {
@@ -561,20 +585,35 @@ enum TicketPriority {
 
 model Ticket {
   id        Int             @id @default(autoincrement())
-  userId    Int             @map("user_id")
-  user      User            @relation(fields: [userId], references: [id])
-  orderId   Int?            @map("order_id")
-  order     Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  subject   String
-  status    TicketStatus    @default(OPEN)
-  priority  TicketPriority  @default(MEDIUM)
-  messages  TicketMessage[]
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  userId           Int             @map("user_id")
+  user             User            @relation("TicketCustomer", fields: [userId], references: [id])
+  orderId          Int?            @map("order_id")
+  order            Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subject          String
+  category         TicketCategory  @default(OTHER)
+  status           TicketStatus    @default(OPEN)
+  priority         TicketPriority  @default(MEDIUM)
+  assigneeId       Int?            @map("assignee_id")
+  assignee         User?           @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  /// The customer spoke last and the ticket isn't resolved — the support queue.
+  awaitingStaff    Boolean         @default(true) @map("awaiting_staff")
+  lastMessageAt    DateTime        @default(now()) @map("last_message_at")
+  lastStaffReplyAt DateTime?       @map("last_staff_reply_at")
+  firstResponseAt  DateTime?       @map("first_response_at")
+  resolvedAt       DateTime?       @map("resolved_at")
+  /// When the customer last opened the thread — drives their "new reply" badge.
+  customerReadAt   DateTime?       @map("customer_read_at")
+  /// Customer feedback once resolved: true = helpful, false = not.
+  satisfied        Boolean?
+  messages         TicketMessage[]
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
 
-  @@index([userId])
+  @@index([userId, lastMessageAt])
   @@index([orderId])
-  @@index([status])
+  @@index([status, lastMessageAt])
+  @@index([awaitingStaff, lastMessageAt])
+  @@index([assigneeId])
   @@map("tickets")
 }
 
@@ -583,12 +622,17 @@ model TicketMessage {
   ticketId  Int      @map("ticket_id")
   // Cascades: a message has no independent existence outside its ticket's thread.
   ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  senderId  Int      @map("sender_id")
-  // Either the ticket's own owner (continuing the conversation) or a staff
-  // member (replying) — this app has no separate "system" sender concept.
-  sender    User     @relation(fields: [senderId], references: [id])
-  message   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
+  // The ticket's owner, a staff member, or null for system events
+  // (e.g. "closed automatically after 7 days").
+  senderId  Int?     @map("sender_id")
+  sender    User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  kind        TicketMessageKind @default(REPLY)
+  /// Hidden from the customer: staff notes and internal timeline events.
+  isInternal  Boolean           @default(false) @map("is_internal")
+  message     String            @db.Text
+  /// Image URLs uploaded to the "tickets" storage folder.
+  attachments String[]          @default([])
+  createdAt   DateTime          @default(now()) @map("created_at")
 
   @@index([ticketId])
   @@index([senderId])

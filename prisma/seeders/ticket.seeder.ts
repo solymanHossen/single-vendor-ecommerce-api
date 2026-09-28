@@ -2,6 +2,7 @@ import {
   PrismaClient,
   OrderStatus,
   Role,
+  TicketCategory,
   TicketPriority,
   TicketStatus,
   type Prisma,
@@ -50,9 +51,21 @@ function priorityFor(scenario: TicketScenario): TicketPriority {
   return faker.datatype.boolean({ probability: 0.8 }) ? TicketPriority.LOW : TicketPriority.MEDIUM;
 }
 
+/** Best-guess category from the subject, like a shopper would pick it. */
+function categoryFor(scenario: TicketScenario, hasOrder: boolean): TicketCategory {
+  const subject = scenario.subject;
+  if (/deliver|courier|shipping|arriv|track/i.test(subject)) return TicketCategory.DELIVERY;
+  if (/pay|bkash|refund|charge|cod|cash/i.test(subject)) return TicketCategory.PAYMENT;
+  if (/return|exchange|replace/i.test(subject)) return TicketCategory.RETURN;
+  if (/account|password|login|sign/i.test(subject)) return TicketCategory.ACCOUNT;
+  if (/product|size|stock|warranty|damag|defect|broken/i.test(subject))
+    return TicketCategory.PRODUCT;
+  return hasOrder ? TicketCategory.ORDER : TicketCategory.OTHER;
+}
+
 /**
  * Builds the conversation for a given lifecycle stage: an OPEN ticket has
- * only the customer's opening message, IN_PROGRESS has the first staff
+ * only the customer's opening message, WAITING has the first staff
  * reply, and a CLOSED ticket carries the full back-and-forth to resolution.
  */
 function threadFor(scenario: TicketScenario, status: TicketStatus): ThreadMessage[] {
@@ -66,7 +79,7 @@ function threadFor(scenario: TicketScenario, status: TicketStatus): ThreadMessag
   if (firstReply) {
     thread.push({ fromStaff: true, text: firstReply });
   }
-  if (status === TicketStatus.IN_PROGRESS) {
+  if (status === TicketStatus.WAITING) {
     return thread;
   }
 
@@ -180,15 +193,18 @@ export class TicketSeeder implements Seeder {
         ageHours < 12
           ? TicketStatus.OPEN
           : ageHours < 72
-            ? faker.helpers.arrayElement([TicketStatus.OPEN, TicketStatus.IN_PROGRESS])
+            ? faker.helpers.arrayElement([TicketStatus.OPEN, TicketStatus.WAITING])
             : faker.helpers.weightedArrayElement([
                 { weight: 78, value: TicketStatus.CLOSED },
-                { weight: 22, value: TicketStatus.IN_PROGRESS },
+                { weight: 22, value: TicketStatus.WAITING },
               ]);
 
       const ticketId = tickets.length + 1;
       const staffId = faker.helpers.arrayElement(admins).id;
       let messageAt = createdAt;
+      let firstStaffAt: Date | null = null;
+      let lastStaffAt: Date | null = null;
+      let lastFromStaff = false;
 
       for (const [position, message] of threadFor(scenario, status).entries()) {
         if (position > 0) {
@@ -202,7 +218,16 @@ export class TicketSeeder implements Seeder {
           message: message.text,
           createdAt: messageAt,
         });
+        if (message.fromStaff) {
+          firstStaffAt ??= messageAt;
+          lastStaffAt = messageAt;
+        }
+        lastFromStaff = message.fromStaff;
       }
+      const closedAt =
+        status === TicketStatus.CLOSED
+          ? notAfterNow(addDays(messageAt, faker.number.float({ min: 0, max: 1 })))
+          : null;
 
       tickets.push({
         id: ticketId,
@@ -211,11 +236,17 @@ export class TicketSeeder implements Seeder {
         subject: scenario.subject,
         status,
         priority: priorityFor(scenario),
+        category: categoryFor(scenario, orderId !== null),
+        assigneeId: status === TicketStatus.OPEN ? null : staffId,
+        awaitingStaff: status !== TicketStatus.CLOSED && !lastFromStaff,
+        lastMessageAt: messageAt,
+        lastStaffReplyAt: lastStaffAt,
+        firstResponseAt: firstStaffAt,
+        resolvedAt: closedAt,
+        customerReadAt: messageAt,
+        satisfied: closedAt ? faker.datatype.boolean({ probability: 0.85 }) : null,
         createdAt,
-        updatedAt:
-          status === TicketStatus.CLOSED
-            ? notAfterNow(addDays(messageAt, faker.number.float({ min: 0, max: 1 })))
-            : messageAt,
+        updatedAt: closedAt ?? messageAt,
       });
     }
 
