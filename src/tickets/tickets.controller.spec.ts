@@ -13,7 +13,13 @@ const mockTicketsService = {
   updateStatus: jest.fn(),
 };
 
-const currentUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
+const currentUser: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
 
 const sampleTicket = new TicketEntity({
   id: 1,

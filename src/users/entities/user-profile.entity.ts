@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import type { Role } from '@prisma/client';
+import { ALL_PERMISSIONS, type Permission } from '../../access/permissions';
 
 interface UserProfileEntityInput {
   id: number;
@@ -9,6 +10,8 @@ interface UserProfileEntityInput {
   avatarUrl: string | null;
   role: Role;
   isActive: boolean;
+  staffRole: { id: number; name: string } | null;
+  permissions: Permission[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +38,17 @@ export class UserProfileEntity {
   @ApiProperty({ example: true })
   isActive: boolean;
 
+  @ApiProperty({ nullable: true, example: { id: 2, name: 'Order manager' } })
+  staffRole: { id: number; name: string } | null;
+
+  @ApiProperty({
+    enum: ALL_PERMISSIONS,
+    isArray: true,
+    description:
+      'What this account may do in the admin console (all for SUPER_ADMIN, none for USER)',
+  })
+  permissions: Permission[];
+
   @ApiProperty()
   createdAt: Date;
 
@@ -49,6 +63,8 @@ export class UserProfileEntity {
     this.avatarUrl = partial.avatarUrl;
     this.role = partial.role;
     this.isActive = partial.isActive;
+    this.staffRole = partial.staffRole;
+    this.permissions = partial.permissions;
     this.createdAt = partial.createdAt;
     this.updatedAt = partial.updatedAt;
   }

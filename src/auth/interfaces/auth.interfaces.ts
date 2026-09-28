@@ -1,4 +1,5 @@
 import { type Role } from '@prisma/client';
+import type { Permission } from '../../access/permissions';
 
 export interface JwtAccessPayload {
   sub: number;
@@ -13,6 +14,8 @@ export interface AuthUser {
   email: string;
   role: Role;
   isActive: boolean;
+  /** Resolved on every request from the role and staff role. */
+  permissions: Permission[];
 }
 
 export interface GoogleProfile {

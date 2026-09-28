@@ -19,11 +19,9 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { ReviewsService } from './reviews.service';
@@ -31,6 +29,7 @@ import { CreateReviewSchema, type CreateReviewDto } from './dto/create-review.dt
 import { ReplyReviewSchema, type ReplyReviewDto } from './dto/reply-review.dto';
 import { ReviewQuerySchema, type ReviewQueryDto } from './dto/query-review.dto';
 import { PaginatedReviewsEntity, ReviewEntity } from './entities/review.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -81,7 +80,7 @@ export class ReviewsController {
 
   @Get('reviews')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('reviews.moderate')
   @ApiOperation({ summary: 'List every review, including unapproved ones, for moderation' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
@@ -99,7 +98,7 @@ export class ReviewsController {
 
   @Patch('reviews/:id/approve')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('reviews.moderate')
   @ApiOperation({ summary: 'Approve a review, making it publicly visible' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, type: ReviewEntity })
@@ -114,7 +113,7 @@ export class ReviewsController {
   @Post('reviews/:id/reply')
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('reviews.moderate')
   @ApiOperation({ summary: 'Reply to a review' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(ReplyReviewSchema) as unknown as ApiBodySchema })

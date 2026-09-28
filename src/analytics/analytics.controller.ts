@@ -1,7 +1,5 @@
 import { Controller, Get, HttpStatus, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsDashboardEntity } from './entities/analytics.entity';
@@ -10,6 +8,7 @@ import {
   AnalyticsQuerySchema,
   type AnalyticsQueryDto,
 } from './dto/analytics-query.dto';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 @ApiTags('Admin Analytics')
 @ApiBearerAuth()
@@ -18,7 +17,7 @@ export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('analytics.view')
   @ApiOperation({
     summary: 'Admin dashboard analytics',
     description:

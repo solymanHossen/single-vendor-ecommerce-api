@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser, JwtAccessPayload } from '../interfaces/auth.interfaces';
+import { effectivePermissions } from '../../access/permissions';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -27,6 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         role: true,
         isActive: true,
         deletedAt: true,
+        staffRole: { select: { permissions: true } },
       },
     });
 
@@ -34,7 +36,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('User account is inactive or does not exist');
     }
 
-    const { deletedAt: _deletedAt, ...authUser } = user;
-    return authUser;
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      permissions: effectivePermissions(user.role, user.staffRole?.permissions),
+    };
   }
 }

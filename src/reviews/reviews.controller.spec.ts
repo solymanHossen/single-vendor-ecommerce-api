@@ -17,7 +17,13 @@ const mockReviewsService = {
   reply: jest.fn(),
 };
 
-const currentUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
+const currentUser: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
 
 const sampleReview = new ReviewEntity({
   id: 1,

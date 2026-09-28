@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { PaymentEntity } from './entities/payment.entity';
+import { hasPermission } from '../access/permissions.guard';
 
 const PAYMENT_SELECT = {
   id: true,
@@ -37,7 +38,8 @@ export class PaymentsService {
   }
 
   async findOne(requester: AuthUser, id: number): Promise<PaymentEntity> {
-    const isStaff = requester.role === Role.ADMIN || requester.role === Role.SUPER_ADMIN;
+    const isStaff =
+      hasPermission(requester, 'payments.manage') || hasPermission(requester, 'orders.view');
 
     const payment = await this.prisma.payment.findFirst({
       where: { id, ...(isStaff ? {} : { order: { userId: requester.id } }) },

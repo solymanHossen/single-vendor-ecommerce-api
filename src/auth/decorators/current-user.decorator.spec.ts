@@ -37,7 +37,13 @@ function buildContext(user: AuthUser | undefined): ExecutionContext {
 
 describe('CurrentUser decorator', () => {
   it('extracts `request.user` set by JwtAuthGuard/JwtStrategy', () => {
-    const user: AuthUser = { id: 1, email: 'a@b.com', role: Role.USER, isActive: true };
+    const user: AuthUser = {
+      id: 1,
+      email: 'a@b.com',
+      role: Role.USER,
+      isActive: true,
+      permissions: [],
+    };
     const factory = getParamDecoratorFactory<AuthUser>(CurrentUser);
 
     expect(factory(undefined, buildContext(user))).toBe(user);

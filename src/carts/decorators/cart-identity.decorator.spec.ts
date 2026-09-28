@@ -43,7 +43,13 @@ describe('CurrentCart decorator', () => {
   const factory = getParamDecoratorFactory<CartIdentity>(CurrentCart);
 
   it('returns a user identity when the request is authenticated', () => {
-    const user: AuthUser = { id: 1, email: 'a@b.com', role: Role.USER, isActive: true };
+    const user: AuthUser = {
+      id: 1,
+      email: 'a@b.com',
+      role: Role.USER,
+      isActive: true,
+      permissions: [],
+    };
 
     expect(factory(undefined, buildContext(user))).toEqual({ type: 'user', id: 1 });
   });

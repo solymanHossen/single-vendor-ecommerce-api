@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UserProfileEntity } from './entities/user-profile.entity';
+import { effectivePermissions } from '../access/permissions';
 
 const USER_PROFILE_SELECT = {
   id: true,
@@ -14,6 +15,7 @@ const USER_PROFILE_SELECT = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
+  staffRole: { select: { id: true, name: true, permissions: true } },
 } satisfies Prisma.UserSelect;
 
 type UserProfileRow = Prisma.UserGetPayload<{ select: typeof USER_PROFILE_SELECT }>;
@@ -53,6 +55,11 @@ export class UsersService {
       avatarUrl: user.avatarUrl,
       role: user.role,
       isActive: user.isActive,
+      staffRole:
+        user.role === 'ADMIN' && user.staffRole
+          ? { id: user.staffRole.id, name: user.staffRole.name }
+          : null,
+      permissions: effectivePermissions(user.role, user.staffRole?.permissions),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     });

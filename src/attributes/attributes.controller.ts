@@ -18,10 +18,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AttributesService } from './attributes.service';
 import { CreateAttributeSchema, type CreateAttributeDto } from './dto/create-attribute.dto';
@@ -35,6 +33,7 @@ import {
   type UpdateAttributeOptionDto,
 } from './dto/update-attribute-option.dto';
 import { AttributeEntity, AttributeOptionEntity } from './entities/attribute.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -68,7 +67,7 @@ export class AttributesController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Create a new attribute' })
   @ApiBody({ schema: z.toJSONSchema(CreateAttributeSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.CREATED, type: AttributeEntity })
@@ -82,7 +81,7 @@ export class AttributesController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Update an existing attribute' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateAttributeSchema) as unknown as ApiBodySchema })
@@ -100,7 +99,7 @@ export class AttributesController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Delete an attribute' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Attribute deleted successfully' })
@@ -117,7 +116,7 @@ export class AttributesController {
   @Post(':id/options')
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Add a new option to an attribute' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(CreateAttributeOptionSchema) as unknown as ApiBodySchema })
@@ -141,7 +140,7 @@ export class AttributesController {
 
   @Patch(':id/options/:optionId')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Update an attribute option' })
   @ApiParam({ name: 'id', type: Number })
   @ApiParam({ name: 'optionId', type: Number })
@@ -168,7 +167,7 @@ export class AttributesController {
   @Delete(':id/options/:optionId')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Delete an attribute option' })
   @ApiParam({ name: 'id', type: Number })
   @ApiParam({ name: 'optionId', type: Number })

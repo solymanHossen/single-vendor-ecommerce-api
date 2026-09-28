@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, PaymentProvider, PaymentStatus, Prisma, Role } from '@prisma/client';
+import { OrderStatus, PaymentProvider, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CartsService } from '../carts/carts.service';
 import { linePrice, variantLabel } from '../carts/cart-pricing';
@@ -44,6 +44,7 @@ import {
   ShippingAddressEntity,
   type ShippingAddressEntityInput,
 } from './entities/order.entity';
+import { hasPermission } from '../access/permissions.guard';
 
 const ORDER_ITEM_SELECT = {
   id: true,
@@ -670,8 +671,9 @@ export class OrdersService {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  /** Staff who may see every order (not just their own). */
   private isStaff(requester: AuthUser): boolean {
-    return requester.role === Role.ADMIN || requester.role === Role.SUPER_ADMIN;
+    return hasPermission(requester, 'orders.view');
   }
 
   /** Who can see what, plus search — everything except the status filter. */

@@ -17,6 +17,7 @@ const currentUser: AuthUser = {
   email: 'jane.doe@example.com',
   role: 'USER',
   isActive: true,
+  permissions: [],
 };
 
 const sampleAddress = new AddressEntity({

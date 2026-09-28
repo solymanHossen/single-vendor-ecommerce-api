@@ -30,6 +30,10 @@ import { AppIdentityModule } from './common/config/app-identity.module';
 import { validateEnv } from './common/config/env.validation';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
+import { PermissionsGuard } from './access/permissions.guard';
+import { AuditModule } from './audit/audit.module';
+import { StaffRolesModule } from './staff-roles/staff-roles.module';
+import { AdminUsersModule } from './admin-users/admin-users.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { PrismaClientExceptionFilter } from './common/filters/prisma-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -114,6 +118,9 @@ import {
     TicketsModule,
     StorefrontModule,
     AnalyticsModule,
+    AuditModule,
+    StaffRolesModule,
+    AdminUsersModule,
   ],
   providers: [
     // ── Global validation pipe ────────────────────────────────────────────────
@@ -135,6 +142,7 @@ import {
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
 
     // ── Exception filters — last-registered = first-executed ─────────────────
     // HttpExceptionFilter: registered first → outermost catch-all fallback

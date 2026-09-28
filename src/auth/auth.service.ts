@@ -10,6 +10,7 @@ import { Role } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import type { ChangePasswordDto } from './dto/change-password.dto';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { MailService } from '../mail/mail.service';
@@ -34,6 +35,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly settingsService: SettingsService,
     private readonly mailService: MailService,
+    private readonly audit: AuditService,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
     this.maxFailedAttempts = this.configService.get<number>('MAX_FAILED_ATTEMPTS') ?? 5;
@@ -126,7 +128,7 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: user.id },
-        data: { failedLoginAttempts: 0, lockedUntil: null },
+        data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
         select: { id: true },
       }),
       this.prisma.refreshToken.create({
@@ -242,7 +244,7 @@ export class AuthService {
   ): Promise<{ message: string; data: null }> {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { password: true },
+      select: { password: true, email: true },
     });
 
     // 400, not 401: a wrong current password must not look like an expired
@@ -259,7 +261,14 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { password: await bcrypt.hash(dto.newPassword, this.bcryptRounds) },
-      select: { id: true },
+      select: { id: true, email: true },
+    });
+    await this.audit.record({
+      actor: { id: userId, email: user.email },
+      action: 'auth.password_changed',
+      targetType: 'user',
+      targetId: userId,
+      summary: `${user.email} changed their password`,
     });
 
     return { message: 'Password changed successfully', data: null };
@@ -348,6 +357,12 @@ export class AuthService {
         deviceInfo: deviceInfo.substring(0, 512),
         expiresAt: this.parseExpiry(this.refreshExpiresIn),
       },
+      select: { id: true },
+    });
+
+    await this.prisma.user.update({
+      where: { id: existingUser.id },
+      data: { lastLoginAt: new Date() },
       select: { id: true },
     });
 
@@ -455,7 +470,7 @@ export class AuthService {
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { failedLoginAttempts: { increment: 1 } },
-      select: { failedLoginAttempts: true },
+      select: { failedLoginAttempts: true, email: true },
     });
 
     if (updated.failedLoginAttempts >= this.maxFailedAttempts) {
@@ -464,6 +479,16 @@ export class AuthService {
         data: { lockedUntil: new Date(Date.now() + this.lockDurationMs) },
         select: { id: true },
       });
+      // Only the transition into a lock is worth recording, not every retry.
+      if (updated.failedLoginAttempts === this.maxFailedAttempts) {
+        await this.audit.record({
+          actor: null,
+          action: 'auth.account_locked',
+          targetType: 'user',
+          targetId: userId,
+          summary: `Locked ${updated.email} after ${updated.failedLoginAttempts} failed sign-in attempts`,
+        });
+      }
     }
   }
 

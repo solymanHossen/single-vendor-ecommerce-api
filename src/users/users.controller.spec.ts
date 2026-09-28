@@ -14,6 +14,7 @@ const currentUser: AuthUser = {
   email: 'jane.doe@example.com',
   role: 'USER',
   isActive: true,
+  permissions: [],
 };
 
 const sampleProfile = new UserProfileEntity({
@@ -24,6 +25,8 @@ const sampleProfile = new UserProfileEntity({
   avatarUrl: null,
   role: 'USER',
   isActive: true,
+  staffRole: null,
+  permissions: [],
   createdAt: new Date(),
   updatedAt: new Date(),
 });

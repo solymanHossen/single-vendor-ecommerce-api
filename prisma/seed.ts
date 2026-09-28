@@ -4,6 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { faker } from '@faker-js/faker';
 import { UserSeeder } from './seeders/user.seeder';
+import { StaffRoleSeeder } from './seeders/staff-role.seeder';
 import { AppSettingSeeder } from './seeders/app-setting.seeder';
 import { HeroBannerSeeder } from './seeders/hero-banner.seeder';
 import { AddressSeeder } from './seeders/address.seeder';
@@ -121,6 +122,7 @@ async function main(): Promise<void> {
   // Seeders without an `order` value are sorted to the end.
   const seeders: Seeder[] = [
     new UserSeeder(),
+    new StaffRoleSeeder(),
     new AppSettingSeeder(),
     new HeroBannerSeeder(),
     new AddressSeeder(),

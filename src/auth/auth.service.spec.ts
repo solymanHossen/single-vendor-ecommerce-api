@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { ChangePasswordSchema } from './dto/change-password.dto';
+import { AuditService } from '../audit/audit.service';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../database/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -26,6 +27,8 @@ const mockSettingsService = {
 const mockMailService = {
   sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
 };
+
+const mockAuditService = { record: jest.fn() };
 
 const mockPrisma = {
   user: {
@@ -99,6 +102,7 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: SettingsService, useValue: mockSettingsService },
         { provide: MailService, useValue: mockMailService },
+        { provide: AuditService, useValue: mockAuditService },
       ],
     }).compile();
 
@@ -223,6 +227,12 @@ describe('AuthService', () => {
       expect(result.data).not.toHaveProperty('failedLoginAttempts');
       expect(result.data).not.toHaveProperty('lockedUntil');
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      // Clears the lockout counters and stamps the sign-in time.
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: baseUser.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: expect.any(Date) },
+        select: { id: true },
+      });
     });
 
     it('should throw UnauthorizedException and perform dummy hash when email not found', async () => {
@@ -248,7 +258,7 @@ describe('AuthService', () => {
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: { failedLoginAttempts: { increment: 1 } },
-        select: { failedLoginAttempts: true },
+        select: { failedLoginAttempts: true, email: true },
       });
     });
 
@@ -259,15 +269,20 @@ describe('AuthService', () => {
         failedLoginAttempts: 4, // 5th attempt triggers lock
       });
       mockPrisma.user.update
-        .mockResolvedValueOnce({ failedLoginAttempts: 5 })
+        .mockResolvedValueOnce({ failedLoginAttempts: 5, email: 'john@example.com' })
         .mockResolvedValueOnce({});
 
       await expect(service.login(dto, 'agent')).rejects.toThrow(UnauthorizedException);
 
+      // The transition into the lock is audited once, as a system event.
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ actor: null, action: 'auth.account_locked', targetId: 1 }),
+      );
+
       expect(mockPrisma.user.update).toHaveBeenNthCalledWith(1, {
         where: { id: 1 },
         data: { failedLoginAttempts: { increment: 1 } },
-        select: { failedLoginAttempts: true },
+        select: { failedLoginAttempts: true, email: true },
       });
       expect(mockPrisma.user.update).toHaveBeenNthCalledWith(2, {
         where: { id: 1 },
@@ -402,7 +417,7 @@ describe('AuthService', () => {
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 7 },
         data: { password: '$2b$12$hashedpassword' },
-        select: { id: true },
+        select: { id: true, email: true },
       });
       expect(result.message).toBe('Password changed successfully');
     });

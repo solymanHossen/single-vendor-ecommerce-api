@@ -19,10 +19,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { TicketsService } from './tickets.service';
@@ -37,6 +35,7 @@ import {
 } from './dto/update-ticket-status.dto';
 import { TicketQuerySchema, type TicketQueryDto } from './dto/query-ticket.dto';
 import { PaginatedTicketsEntity, TicketEntity } from './entities/ticket.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -121,7 +120,7 @@ export class TicketsController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('tickets.manage')
   @ApiOperation({ summary: "Update a ticket's status (e.g. close it)" })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateTicketStatusSchema) as unknown as ApiBodySchema })

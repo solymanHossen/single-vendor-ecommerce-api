@@ -18,10 +18,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { ProductVariantsService } from './product-variants.service';
 import {
@@ -33,6 +31,7 @@ import {
   type UpdateProductVariantDto,
 } from './dto/update-product-variant.dto';
 import { ProductVariantEntity } from './entities/product-variant.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -57,7 +56,7 @@ export class ProductVariantsController {
   @Post('products/:productId/variants')
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Create a new variant for a product' })
   @ApiParam({ name: 'productId', type: Number })
   @ApiBody({ schema: z.toJSONSchema(CreateProductVariantSchema) as unknown as ApiBodySchema })
@@ -91,7 +90,7 @@ export class ProductVariantsController {
 
   @Patch('product-variants/:id')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Update an existing product variant' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateProductVariantSchema) as unknown as ApiBodySchema })
@@ -114,7 +113,7 @@ export class ProductVariantsController {
   @Delete('product-variants/:id')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Delete a product variant' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Product variant deleted successfully' })

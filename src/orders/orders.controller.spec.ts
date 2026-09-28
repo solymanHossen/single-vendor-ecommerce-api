@@ -17,7 +17,13 @@ const mockOrdersService = {
   updateStatus: jest.fn(),
 };
 
-const currentUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
+const currentUser: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
 
 // The controller only forwards service results, so opaque stand-ins suffice.
 const sampleOrder = { id: 301, status: 'PENDING' } as unknown as OrderEntity;

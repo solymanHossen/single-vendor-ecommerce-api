@@ -11,7 +11,13 @@ describe('OptionalJwtAuthGuard', () => {
     });
 
     it('returns the user when authentication succeeded', () => {
-      const user: AuthUser = { id: 1, email: 'a@b.com', role: Role.USER, isActive: true };
+      const user: AuthUser = {
+        id: 1,
+        email: 'a@b.com',
+        role: Role.USER,
+        isActive: true,
+        permissions: [],
+      };
 
       expect(guard.handleRequest(null, user, null, undefined as never)).toBe(user);
     });

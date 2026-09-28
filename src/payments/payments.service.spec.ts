@@ -4,6 +4,7 @@ import { Prisma, Role } from '@prisma/client';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
+import { ALL_PERMISSIONS } from '../access/permissions';
 
 const mockTx = {
   payment: { update: jest.fn() },
@@ -28,8 +29,20 @@ const sampleRow = {
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
 };
 
-const regularUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
-const adminUser: AuthUser = { id: 99, email: 'admin@b.com', role: Role.ADMIN, isActive: true };
+const regularUser: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
+const adminUser: AuthUser = {
+  id: 99,
+  email: 'admin@b.com',
+  role: Role.ADMIN,
+  isActive: true,
+  permissions: [...ALL_PERMISSIONS],
+};
 
 describe('PaymentsService', () => {
   let service: PaymentsService;

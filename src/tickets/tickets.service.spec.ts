@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 import { TicketsService } from './tickets.service';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
+import { ALL_PERMISSIONS } from '../access/permissions';
 
 const mockPrisma = {
   order: { findFirst: jest.fn() },
@@ -38,8 +39,20 @@ const sampleRow = {
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
 };
 
-const regularUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
-const adminUser: AuthUser = { id: 99, email: 'admin@b.com', role: Role.ADMIN, isActive: true };
+const regularUser: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
+const adminUser: AuthUser = {
+  id: 99,
+  email: 'admin@b.com',
+  role: Role.ADMIN,
+  isActive: true,
+  permissions: [...ALL_PERMISSIONS],
+};
 
 describe('TicketsService', () => {
   let service: TicketsService;

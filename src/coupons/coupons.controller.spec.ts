@@ -18,7 +18,13 @@ const mockCouponsService = {
   validate: jest.fn(),
 };
 
-const currentUser: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
+const currentUser: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
 
 const sampleCoupon = new CouponEntity({
   id: 1,

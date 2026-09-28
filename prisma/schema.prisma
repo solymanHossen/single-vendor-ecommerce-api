@@ -14,7 +14,12 @@ model User {
   avatarUrl           String?              @map("avatar_url")
   password            String?
   role                Role                 @default(USER)
+  // ADMIN accounts act through a staff role's permissions. SUPER_ADMIN has
+  // every permission; USER has none — both ignore this field.
+  staffRoleId         Int?                 @map("staff_role_id")
+  staffRole           StaffRole?           @relation(fields: [staffRoleId], references: [id], onDelete: SetNull)
   isActive            Boolean              @default(true)
+  lastLoginAt         DateTime?            @map("last_login_at")
   googleId            String?              @unique @map("google_id")
   failedLoginAttempts Int                  @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime?            @map("locked_until")
@@ -31,8 +36,46 @@ model User {
   returnRequests      ReturnRequest[]
   tickets             Ticket[]
   ticketMessages      TicketMessage[]
+  auditLogs           AuditLog[]
 
+  @@index([staffRoleId])
   @@map("users")
+}
+
+/// A named bundle of permissions (e.g. "Order manager") given to ADMIN
+/// accounts. Permission keys live in src/access/permissions.ts.
+model StaffRole {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String   @default("")
+  permissions String[]
+  users       User[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("staff_roles")
+}
+
+/// Append-only record of security-relevant actions (access changes,
+/// account status, sessions, settings). Never updated or deleted by the app.
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  actorId    Int?     @map("actor_id")
+  // Kept when the actor's account is removed, so history stays readable.
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail String?  @map("actor_email")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id")
+  summary    String
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
 }
 
 model RefreshToken {

@@ -20,10 +20,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { HeroBannersService } from './hero-banners.service';
 import { CreateHeroBannerSchema, type CreateHeroBannerDto } from './dto/create-hero-banner.dto';
@@ -34,6 +32,7 @@ import {
   type ReorderHeroBannersDto,
 } from './dto/reorder-hero-banners.dto';
 import { HeroBannerEntity } from './entities/hero-banner.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -59,7 +58,7 @@ export class HeroBannersController {
   // would swallow "admin" as its param value first.
   @Get('admin')
   @ApiBearerAuth()
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions('banners.manage')
   @ApiOperation({ summary: 'List every hero banner (active and inactive) for admin management' })
   @ApiResponse({ status: HttpStatus.OK, type: HeroBannerEntity, isArray: true })
   async findAllForAdmin(): Promise<{ message: string; data: HeroBannerEntity[] }> {
@@ -70,7 +69,7 @@ export class HeroBannersController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions('banners.manage')
   @ApiOperation({ summary: 'Create a new hero banner' })
   @ApiBody({ schema: z.toJSONSchema(CreateHeroBannerSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.CREATED, type: HeroBannerEntity })
@@ -86,7 +85,7 @@ export class HeroBannersController {
   @Patch('reorder')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions('banners.manage')
   @ApiOperation({ summary: 'Bulk-update display order for a set of hero banners' })
   @ApiBody({ schema: z.toJSONSchema(ReorderHeroBannersSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.OK, description: 'Order updated successfully' })
@@ -99,7 +98,7 @@ export class HeroBannersController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions('banners.manage')
   @ApiOperation({ summary: 'Update an existing hero banner' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateHeroBannerSchema) as unknown as ApiBodySchema })
@@ -117,7 +116,7 @@ export class HeroBannersController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions('banners.manage')
   @ApiOperation({ summary: 'Delete a hero banner and its uploaded image' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Hero banner deleted successfully' })

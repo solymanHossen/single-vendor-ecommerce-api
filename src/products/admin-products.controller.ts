@@ -17,9 +17,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AdminProductsService } from './admin-products.service';
 import { ProductsService } from './products.service';
@@ -34,6 +32,7 @@ import {
   PaginatedAdminProductsEntity,
 } from './entities/admin-product.entity';
 import { ProductEntity } from './entities/product.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -43,7 +42,7 @@ type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>
  */
 @ApiTags('Admin · Products')
 @ApiBearerAuth()
-@Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequirePermissions('catalog.manage')
 @Controller('admin/products')
 export class AdminProductsController {
   constructor(

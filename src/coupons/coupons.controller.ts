@@ -21,10 +21,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AUTH_THROTTLE_KEY, CHECKOUT_THROTTLE_KEY } from '../common/constants/throttler.constants';
@@ -38,6 +36,7 @@ import {
   CouponValidationEntity,
   PaginatedCouponsEntity,
 } from './entities/coupon.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -54,7 +53,7 @@ export class CouponsController {
   constructor(private readonly couponsService: CouponsService) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('coupons.manage')
   @ApiOperation({ summary: 'List coupons with filtering, sorting, and pagination' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
@@ -70,7 +69,7 @@ export class CouponsController {
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('coupons.manage')
   @ApiOperation({ summary: 'Retrieve a single coupon' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, type: CouponEntity })
@@ -84,7 +83,7 @@ export class CouponsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('coupons.manage')
   @ApiOperation({ summary: 'Create a new coupon' })
   @ApiBody({ schema: z.toJSONSchema(CreateCouponSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.CREATED, type: CouponEntity })
@@ -98,7 +97,7 @@ export class CouponsController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('coupons.manage')
   @ApiOperation({ summary: 'Update an existing coupon' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateCouponSchema) as unknown as ApiBodySchema })
@@ -116,7 +115,7 @@ export class CouponsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('coupons.manage')
   @ApiOperation({ summary: 'Delete a coupon' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Coupon deleted successfully' })

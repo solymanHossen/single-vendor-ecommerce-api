@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatus, PaymentStatus, Prisma, ReturnStatus, Role } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma, ReturnStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { CreateReturnRequestDto } from './dto/create-return-request.dto';
@@ -10,6 +10,7 @@ import {
   PaginationMetaEntity,
   ReturnRequestEntity,
 } from './entities/return-request.entity';
+import { hasPermission } from '../access/permissions.guard';
 
 const RETURN_REQUEST_SELECT = {
   id: true,
@@ -56,7 +57,7 @@ export class ReturnsService {
     requester: AuthUser,
     query: ReturnQueryDto,
   ): Promise<PaginatedReturnRequestsEntity> {
-    const isStaff = requester.role === Role.ADMIN || requester.role === Role.SUPER_ADMIN;
+    const isStaff = hasPermission(requester, 'returns.manage');
     const where: Prisma.ReturnRequestWhereInput = {};
 
     if (!isStaff) {
@@ -92,7 +93,7 @@ export class ReturnsService {
   }
 
   async findOne(requester: AuthUser, id: number): Promise<ReturnRequestEntity> {
-    const isStaff = requester.role === Role.ADMIN || requester.role === Role.SUPER_ADMIN;
+    const isStaff = hasPermission(requester, 'returns.manage');
 
     const returnRequest = await this.prisma.returnRequest.findFirst({
       where: { id, ...(isStaff ? {} : { userId: requester.id }) },

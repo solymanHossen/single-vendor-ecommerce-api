@@ -1,6 +1,18 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { SettingsController } from './settings.controller';
 import { SettingsService } from './settings.service';
+import { AuditService } from '../audit/audit.service';
+import { ALL_PERMISSIONS } from '../access/permissions';
+import type { AuthUser } from '../auth/interfaces/auth.interfaces';
+
+const mockAuditService = { record: jest.fn() };
+const owner: AuthUser = {
+  id: 1,
+  email: 'owner@example.com',
+  role: 'SUPER_ADMIN',
+  isActive: true,
+  permissions: [...ALL_PERMISSIONS],
+};
 
 const mockSettingsService = {
   getSettings: jest.fn(),
@@ -13,7 +25,10 @@ describe('SettingsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SettingsController],
-      providers: [{ provide: SettingsService, useValue: mockSettingsService }],
+      providers: [
+        { provide: SettingsService, useValue: mockSettingsService },
+        { provide: AuditService, useValue: mockAuditService },
+      ],
     }).compile();
 
     controller = module.get<SettingsController>(SettingsController);
@@ -55,7 +70,9 @@ describe('SettingsController', () => {
         enableGoogleLogin: true,
       });
 
-      const result = await controller.updateSettings({ allowRegistration: false });
+      const result = await controller.updateSettings(owner, '203.0.113.7', {
+        allowRegistration: false,
+      });
 
       expect(mockSettingsService.updateSettings).toHaveBeenCalledWith({
         allowRegistration: false,
@@ -65,5 +82,20 @@ describe('SettingsController', () => {
         data: { allowRegistration: false, enableGoogleLogin: true },
       });
     });
+  });
+
+  it('records which settings changed, and by whom', async () => {
+    mockSettingsService.updateSettings.mockResolvedValueOnce({ storeName: 'Nova' });
+
+    await controller.updateSettings(owner, '203.0.113.7', { storeName: 'Nova', tagline: 'x' });
+
+    expect(mockAuditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: owner,
+        action: 'settings.updated',
+        metadata: { fields: ['storeName', 'tagline'] },
+        ipAddress: '203.0.113.7',
+      }),
+    );
   });
 });

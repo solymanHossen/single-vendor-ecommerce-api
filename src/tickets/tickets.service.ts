@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -13,6 +13,7 @@ import {
   TicketMessageEntity,
   TicketSenderSummaryEntity,
 } from './entities/ticket.entity';
+import { hasPermission } from '../access/permissions.guard';
 
 const TICKET_SELECT = {
   id: true,
@@ -153,7 +154,7 @@ export class TicketsService {
   }
 
   private isStaff(requester: AuthUser): boolean {
-    return requester.role === Role.ADMIN || requester.role === Role.SUPER_ADMIN;
+    return hasPermission(requester, 'tickets.manage');
   }
 
   private async assertOrderOwnership(userId: number, orderId: number): Promise<void> {

@@ -8,6 +8,7 @@ import { CouponsService } from '../coupons/coupons.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ORDER_TRANSITIONS } from './orders.constants';
 import { SettingsService } from '../settings/settings.service';
+import { ALL_PERMISSIONS } from '../access/permissions';
 
 const FREE_SHIPPING_THRESHOLD = 10_000;
 const mockSettingsService = {
@@ -50,8 +51,20 @@ const mockPrisma = {
 const mockCartsService = { getCart: jest.fn(), clearCart: jest.fn() };
 const mockCouponsService = { evaluate: jest.fn() };
 
-const customer: AuthUser = { id: 7, email: 'a@b.com', role: Role.USER, isActive: true };
-const admin: AuthUser = { id: 1, email: 'admin@b.com', role: Role.ADMIN, isActive: true };
+const customer: AuthUser = {
+  id: 7,
+  email: 'a@b.com',
+  role: Role.USER,
+  isActive: true,
+  permissions: [],
+};
+const admin: AuthUser = {
+  id: 1,
+  email: 'admin@b.com',
+  role: Role.ADMIN,
+  isActive: true,
+  permissions: [...ALL_PERMISSIONS],
+};
 
 const address = {
   recipientName: 'Nusrat Jahan',

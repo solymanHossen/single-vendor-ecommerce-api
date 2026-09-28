@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 import type { Request } from 'express';
 import { RolesGuard } from './roles.guard';
 import type { AuthUser } from '../interfaces/auth.interfaces';
+import { ALL_PERMISSIONS } from '../../access/permissions';
 
 function buildContext(
   user: AuthUser | undefined,
@@ -43,7 +44,13 @@ describe('RolesGuard', () => {
   });
 
   it('allows a user whose role is in the required set', () => {
-    const user: AuthUser = { id: 1, email: 'a@b.com', role: Role.ADMIN, isActive: true };
+    const user: AuthUser = {
+      id: 1,
+      email: 'a@b.com',
+      role: Role.ADMIN,
+      isActive: true,
+      permissions: [...ALL_PERMISSIONS],
+    };
     const { context, reflector } = buildContext(user, [Role.ADMIN, Role.SUPER_ADMIN]);
     const guard = new RolesGuard(reflector);
 
@@ -51,7 +58,13 @@ describe('RolesGuard', () => {
   });
 
   it('rejects a user whose role is not in the required set', () => {
-    const user: AuthUser = { id: 1, email: 'a@b.com', role: Role.USER, isActive: true };
+    const user: AuthUser = {
+      id: 1,
+      email: 'a@b.com',
+      role: Role.USER,
+      isActive: true,
+      permissions: [],
+    };
     const { context, reflector } = buildContext(user, [Role.ADMIN]);
     const guard = new RolesGuard(reflector);
 

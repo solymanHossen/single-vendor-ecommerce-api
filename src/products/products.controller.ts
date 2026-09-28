@@ -20,16 +20,15 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { ProductsService } from './products.service';
 import { CreateProductSchema, type CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductSchema, type UpdateProductDto } from './dto/update-product.dto';
 import { ProductQuerySchema, type ProductQueryDto } from './dto/query-product.dto';
 import { PaginatedProductsEntity, ProductEntity } from './entities/product.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -85,7 +84,7 @@ export class ProductsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Create a new product' })
   @ApiBody({ schema: z.toJSONSchema(CreateProductSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.CREATED, type: ProductEntity })
@@ -104,7 +103,7 @@ export class ProductsController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Update an existing product' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateProductSchema) as unknown as ApiBodySchema })
@@ -127,7 +126,7 @@ export class ProductsController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Delete a product' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Product deleted successfully' })

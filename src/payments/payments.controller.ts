@@ -18,10 +18,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AUTH_THROTTLE_KEY, CHECKOUT_THROTTLE_KEY } from '../common/constants/throttler.constants';
@@ -32,6 +30,7 @@ import {
   type UpdatePaymentStatusDto,
 } from './dto/update-payment-status.dto';
 import { PaymentEntity } from './entities/payment.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -50,7 +49,7 @@ export class PaymentsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('payments.manage')
   @ApiOperation({ summary: 'Record a new payment for an order' })
   @ApiBody({ schema: z.toJSONSchema(CreatePaymentSchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.CREATED, type: PaymentEntity })
@@ -81,7 +80,7 @@ export class PaymentsController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('payments.manage')
   @ApiOperation({
     summary: "Update a payment's status, keeping the parent order's paymentStatus in sync",
   })

@@ -20,10 +20,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { CHECKOUT_THROTTLE_KEY } from '../common/constants/throttler.constants';
@@ -38,6 +36,7 @@ import {
   OrderSummaryEntity,
   PaginatedOrdersEntity,
 } from './entities/order.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -177,7 +176,7 @@ export class OrdersController {
 
   @Patch(':id/status')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('orders.manage')
   @ApiOperation({ summary: "Update an order's status" })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateOrderStatusSchema) as unknown as ApiBodySchema })

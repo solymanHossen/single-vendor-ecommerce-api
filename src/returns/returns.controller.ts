@@ -19,10 +19,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { ReturnsService } from './returns.service';
@@ -39,6 +37,7 @@ import {
   PaginatedReturnRequestsEntity,
   ReturnRequestEntity,
 } from './entities/return-request.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -111,7 +110,7 @@ export class ReturnsController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('returns.manage')
   @ApiOperation({
     summary: "Update a return request's status; REFUNDED also marks the order returned/refunded",
   })

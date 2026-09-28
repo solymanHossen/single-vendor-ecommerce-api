@@ -31,6 +31,7 @@ const mockAuthUser: AuthUser = {
   email: 'user@example.com',
   role: Role.USER,
   isActive: true,
+  permissions: [],
 };
 
 const mockAuthService = {
@@ -247,7 +248,13 @@ describe('AuthController', () => {
     it('changes the password for the signed-in user', async () => {
       const result = { message: 'Password changed successfully', data: null };
       mockAuthService.changePassword.mockResolvedValueOnce(result);
-      const user = { id: 7, email: 'a@b.com', role: 'USER', isActive: true } as const;
+      const user = {
+        id: 7,
+        email: 'a@b.com',
+        role: 'USER',
+        isActive: true,
+        permissions: [],
+      } satisfies AuthUser;
       const dto = { currentPassword: 'OldPass123', newPassword: 'NewPass456' };
 
       await expect(controller.changePassword(user, dto)).resolves.toEqual(result);

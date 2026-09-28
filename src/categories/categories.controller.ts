@@ -18,15 +18,14 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { CategoriesService } from './categories.service';
 import { CreateCategorySchema, type CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategorySchema, type UpdateCategoryDto } from './dto/update-category.dto';
 import { CategoryEntity, CategoryTreeNodeEntity } from './entities/category.entity';
+import { RequirePermissions } from '../access/require-permissions.decorator';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -62,7 +61,7 @@ export class CategoriesController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Create a new category' })
   @ApiBody({ schema: z.toJSONSchema(CreateCategorySchema) as unknown as ApiBodySchema })
   @ApiResponse({ status: HttpStatus.CREATED, type: CategoryEntity })
@@ -81,7 +80,7 @@ export class CategoriesController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Update an existing category' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ schema: z.toJSONSchema(UpdateCategorySchema) as unknown as ApiBodySchema })
@@ -100,7 +99,7 @@ export class CategoriesController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('catalog.manage')
   @ApiOperation({ summary: 'Delete a category' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Category deleted successfully' })

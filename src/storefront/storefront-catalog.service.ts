@@ -416,7 +416,7 @@ export class StorefrontCatalogService {
         WHERE ${this.whereSql(filters)}
       `,
     );
-    return row?.min != null && row.max != null
+    return row && row.min !== null && row.max !== null
       ? new CatalogPriceRangeEntity({ min: row.min, max: row.max })
       : null;
   }

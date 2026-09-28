@@ -1,13 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Ip, Patch } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { SettingsService } from './settings.service';
 import { SettingsEntity } from './entities/settings.entity';
 import { UpdateSettingsSchema, type UpdateSettingsDto } from './dto/update-settings.dto';
+import { RequirePermissions } from '../access/require-permissions.decorator';
+import { AuditService } from '../audit/audit.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -15,7 +17,10 @@ type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>
 @ApiBearerAuth()
 @Controller('settings')
 export class SettingsController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Get('public')
   @Public()
@@ -30,7 +35,7 @@ export class SettingsController {
   }
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions('settings.manage')
   @ApiOperation({ summary: 'Retrieve every store setting (admin console)' })
   @ApiResponse({ status: HttpStatus.OK, type: SettingsEntity })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient permissions' })
@@ -44,7 +49,7 @@ export class SettingsController {
   // Only SUPER_ADMIN — these settings change the whole storefront (brand,
   // checkout pricing) and gate account creation and OAuth sign-in: a
   // materially higher blast radius than routine ADMIN actions.
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions('settings.manage')
   @ApiOperation({ summary: 'Update any subset of store settings' })
   @ApiBody({
     // Input shape: the empty-string → null transforms have no JSON Schema form.
@@ -57,9 +62,20 @@ export class SettingsController {
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient permissions' })
   async updateSettings(
+    @CurrentUser() actor: AuthUser,
+    @Ip() ip: string,
     @Body(new ZodValidationPipe(UpdateSettingsSchema)) dto: UpdateSettingsDto,
   ): Promise<{ message: string; data: SettingsEntity }> {
     const settings = await this.settingsService.updateSettings(dto);
+    const keys = Object.keys(dto);
+    await this.audit.record({
+      actor,
+      action: 'settings.updated',
+      targetType: 'settings',
+      summary: `Changed ${keys.length} store ${keys.length === 1 ? 'setting' : 'settings'}: ${keys.join(', ')}`,
+      metadata: { fields: keys },
+      ipAddress: ip,
+    });
     return { message: 'Settings updated successfully', data: new SettingsEntity(settings) };
   }
 }
