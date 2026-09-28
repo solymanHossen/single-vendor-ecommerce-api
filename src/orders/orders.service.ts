@@ -678,8 +678,8 @@ export class OrdersService {
 
   /** Who can see what, plus search — everything except the status filter. */
   private buildScope(requester: AuthUser, query: OrderQueryDto): Prisma.OrderWhereInput {
-    if (!this.isStaff(requester)) {
-      // A plain USER only ever sees their own orders; userId/search are ignored.
+    if (query.scope === 'mine' || !this.isStaff(requester)) {
+      // Own orders only (a plain USER always); userId/search are ignored.
       return { userId: requester.id };
     }
 

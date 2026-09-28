@@ -67,7 +67,7 @@ describe('OrdersController', () => {
   it('findAll() delegates with the current user and query', async () => {
     const page = { items: [sampleOrder] } as unknown as PaginatedOrdersEntity;
     mockOrdersService.findAll.mockResolvedValueOnce(page);
-    const query = { page: 1, limit: 20, sortOrder: 'desc' as const };
+    const query = { page: 1, limit: 20, sortOrder: 'desc' as const, scope: 'all' as const };
 
     const result = await controller.findAll(currentUser, query);
 

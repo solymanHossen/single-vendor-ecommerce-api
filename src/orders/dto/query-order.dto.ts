@@ -12,6 +12,9 @@ export const OrderQuerySchema = z
     // Staff only: "#123"/"123" matches an order id, anything else a customer name or email.
     search: z.string().trim().min(1).max(150).optional(),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),
+    // "mine" = only the caller's own orders, even for staff. The customer
+    // account pages always send it; the admin console leaves it at "all".
+    scope: z.enum(['all', 'mine']).default('all'),
   })
   // Reject unrecognized fields instead of silently stripping them.
   .strict();

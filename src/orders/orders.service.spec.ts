@@ -418,6 +418,7 @@ describe('OrdersService', () => {
         page: 1,
         limit: 20,
         sortOrder: 'desc',
+        scope: 'all',
         userId: 99,
         search: 'x',
       });
@@ -427,8 +428,31 @@ describe('OrdersService', () => {
       );
     });
 
+    it("scope 'mine' limits even staff to their own orders", async () => {
+      await service.findAll(admin, {
+        page: 1,
+        limit: 20,
+        sortOrder: 'desc',
+        scope: 'mine',
+        search: '#301',
+      });
+
+      expect(mockPrisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 1 } }),
+      );
+      expect(mockPrisma.order.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 1 } }),
+      );
+    });
+
     it('lets staff search by order number', async () => {
-      await service.findAll(admin, { page: 1, limit: 20, sortOrder: 'desc', search: '#301' });
+      await service.findAll(admin, {
+        page: 1,
+        limit: 20,
+        sortOrder: 'desc',
+        scope: 'all',
+        search: '#301',
+      });
 
       expect(mockPrisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { OR: [{ id: 301 }] } }),
@@ -436,7 +460,13 @@ describe('OrdersService', () => {
     });
 
     it('lets staff search customers by name, email or phone', async () => {
-      await service.findAll(admin, { page: 1, limit: 20, sortOrder: 'desc', search: 'nusrat' });
+      await service.findAll(admin, {
+        page: 1,
+        limit: 20,
+        sortOrder: 'desc',
+        scope: 'all',
+        search: 'nusrat',
+      });
 
       const where = (mockPrisma.order.findMany.mock.calls[0][0] as { where: { OR: unknown[] } })
         .where;
@@ -448,6 +478,7 @@ describe('OrdersService', () => {
         page: 1,
         limit: 20,
         sortOrder: 'desc',
+        scope: 'all',
         status: 'SHIPPED',
       });
 
