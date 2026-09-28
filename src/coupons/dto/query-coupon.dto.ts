@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { COUPON_STATUSES } from '../coupons.constants';
 
 /**
  * Query params always arrive as strings. `z.enum(['true', 'false'])` (rather
@@ -17,6 +18,8 @@ export const CouponQuerySchema = z
     limit: z.coerce.number().int().min(1).max(100).default(20),
     search: z.string().trim().min(1).max(150).optional(),
     isActive: booleanQueryParam,
+    status: z.enum(COUPON_STATUSES).optional(),
+    sortBy: z.enum(['createdAt', 'validUntil', 'usedCount', 'code']).default('createdAt'),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),
   })
   // Reject unrecognized fields instead of silently stripping them.

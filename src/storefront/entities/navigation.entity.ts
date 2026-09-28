@@ -120,7 +120,7 @@ export class NavigationPromotionEntity {
   @ApiProperty({ example: 'FLASH20' })
   code: string;
 
-  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'], example: 'PERCENTAGE' })
+  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT', 'FREE_SHIPPING'], example: 'PERCENTAGE' })
   discountType: DiscountType;
 
   @ApiProperty({ example: '20', description: 'Decimal amount serialized as a string' })

@@ -361,7 +361,7 @@ export class QuoteCouponEntity {
   @ApiProperty({ example: 'FLASH20' })
   code: string;
 
-  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'] })
+  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT', 'FREE_SHIPPING'] })
   discountType: string;
 
   @ApiProperty({ type: String, example: '20.00' })

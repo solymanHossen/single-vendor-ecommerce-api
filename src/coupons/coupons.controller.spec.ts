@@ -16,6 +16,7 @@ const mockCouponsService = {
   update: jest.fn(),
   remove: jest.fn(),
   validate: jest.fn(),
+  summary: jest.fn(),
 };
 
 const currentUser: AuthUser = {
@@ -29,12 +30,18 @@ const currentUser: AuthUser = {
 const sampleCoupon = new CouponEntity({
   id: 1,
   code: 'SAVE10',
+  description: null,
   discountType: 'PERCENTAGE',
   discountValue: 10 as unknown as CouponEntity['discountValue'],
   minOrderAmount: null,
   maxDiscountAmount: null,
   usageLimit: null,
+  perCustomerLimit: null,
   usedCount: 0,
+  status: 'ACTIVE',
+  orderCount: 0,
+  discountGiven: 0 as unknown as CouponEntity['discountGiven'],
+  revenue: 0 as unknown as CouponEntity['revenue'],
   validFrom: new Date(),
   validUntil: new Date(),
   isActive: true,
@@ -62,7 +69,12 @@ describe('CouponsController', () => {
         meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
       });
       mockCouponsService.findAll.mockResolvedValueOnce(paginated);
-      const query = { page: 1, limit: 20, sortOrder: 'desc' as const };
+      const query = {
+        page: 1,
+        limit: 20,
+        sortBy: 'createdAt' as const,
+        sortOrder: 'desc' as const,
+      };
 
       const result = await controller.findAll(query);
 
@@ -94,9 +106,12 @@ describe('CouponsController', () => {
         isActive: true,
       };
 
-      const result = await controller.create(dto);
+      const result = await controller.create(currentUser, '::1', dto);
 
-      expect(mockCouponsService.create).toHaveBeenCalledWith(dto);
+      expect(mockCouponsService.create).toHaveBeenCalledWith(dto, {
+        actor: currentUser,
+        ip: '::1',
+      });
       expect(result).toEqual({ message: 'Coupon created successfully', data: sampleCoupon });
     });
   });
@@ -105,9 +120,13 @@ describe('CouponsController', () => {
     it('delegates to the service with id and dto', async () => {
       mockCouponsService.update.mockResolvedValueOnce(sampleCoupon);
 
-      const result = await controller.update(1, { isActive: false });
+      const result = await controller.update(currentUser, '::1', 1, { isActive: false });
 
-      expect(mockCouponsService.update).toHaveBeenCalledWith(1, { isActive: false });
+      expect(mockCouponsService.update).toHaveBeenCalledWith(
+        1,
+        { isActive: false },
+        { actor: currentUser, ip: '::1' },
+      );
       expect(result).toEqual({ message: 'Coupon updated successfully', data: sampleCoupon });
     });
   });
@@ -116,9 +135,9 @@ describe('CouponsController', () => {
     it('delegates to the service and returns a null-data envelope', async () => {
       mockCouponsService.remove.mockResolvedValueOnce(undefined);
 
-      const result = await controller.remove(1);
+      const result = await controller.remove(currentUser, '::1', 1);
 
-      expect(mockCouponsService.remove).toHaveBeenCalledWith(1);
+      expect(mockCouponsService.remove).toHaveBeenCalledWith(1, { actor: currentUser, ip: '::1' });
       expect(result).toEqual({ message: 'Coupon deleted successfully', data: null });
     });
   });
@@ -126,6 +145,9 @@ describe('CouponsController', () => {
   describe('validate()', () => {
     it("delegates to the service with the current user's id and dto", async () => {
       const validation = new CouponValidationEntity({
+        couponId: 1,
+        freeShipping: false,
+        perCustomerLimit: null,
         code: 'SAVE10',
         discountType: 'PERCENTAGE',
         discountValue: 10 as unknown as CouponValidationEntity['discountValue'],

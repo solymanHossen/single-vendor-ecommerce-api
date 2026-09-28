@@ -18,7 +18,7 @@ export interface AuditEvent {
   /** Who did it; null for system events (e.g. an automatic lockout). */
   actor: { id: number; email: string } | null;
   action: AuditAction;
-  targetType: 'user' | 'role' | 'settings';
+  targetType: 'user' | 'role' | 'settings' | 'coupon';
   targetId?: string | number | null;
   summary: string;
   metadata?: Prisma.InputJsonValue;

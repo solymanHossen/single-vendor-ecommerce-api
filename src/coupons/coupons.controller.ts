@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Ip,
   Param,
   ParseIntPipe,
   Patch,
@@ -32,11 +33,14 @@ import { UpdateCouponSchema, type UpdateCouponDto } from './dto/update-coupon.dt
 import { CouponQuerySchema, type CouponQueryDto } from './dto/query-coupon.dto';
 import { ValidateCouponSchema, type ValidateCouponDto } from './dto/validate-coupon.dto';
 import {
+  CouponDetailEntity,
   CouponEntity,
+  CouponSummaryEntity,
   CouponValidationEntity,
   PaginatedCouponsEntity,
 } from './entities/coupon.entity';
 import { RequirePermissions } from '../access/require-permissions.decorator';
+import { COUPON_STATUSES } from './coupons.constants';
 
 type ApiBodySchema = Extract<Parameters<typeof ApiBody>[0], { schema: unknown }>['schema'];
 
@@ -59,6 +63,12 @@ export class CouponsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Filter by coupon code' })
   @ApiQuery({ name: 'isActive', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'status', required: false, enum: COUPON_STATUSES })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: ['createdAt', 'validUntil', 'usedCount', 'code'],
+  })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
   @ApiResponse({ status: HttpStatus.OK, type: PaginatedCouponsEntity })
   async findAll(
@@ -68,15 +78,27 @@ export class CouponsController {
     return { message: 'Coupons retrieved successfully', data: result };
   }
 
+  // Declared before ':id' so "summary" isn't parsed as an id.
+  @Get('summary')
+  @RequirePermissions('coupons.manage')
+  @ApiOperation({ summary: 'Coupon counts by status and what coupons have earned' })
+  @ApiResponse({ status: HttpStatus.OK, type: CouponSummaryEntity })
+  async summary(): Promise<{ message: string; data: CouponSummaryEntity }> {
+    return {
+      message: 'Coupon summary retrieved successfully',
+      data: await this.couponsService.summary(),
+    };
+  }
+
   @Get(':id')
   @RequirePermissions('coupons.manage')
-  @ApiOperation({ summary: 'Retrieve a single coupon' })
+  @ApiOperation({ summary: 'Retrieve a single coupon with its usage and recent orders' })
   @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({ status: HttpStatus.OK, type: CouponEntity })
+  @ApiResponse({ status: HttpStatus.OK, type: CouponDetailEntity })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Coupon does not exist' })
   async findOne(
     @Param('id', ParseIntPipe) id: number,
-  ): Promise<{ message: string; data: CouponEntity }> {
+  ): Promise<{ message: string; data: CouponDetailEntity }> {
     const coupon = await this.couponsService.findOne(id);
     return { message: 'Coupon retrieved successfully', data: coupon };
   }
@@ -85,14 +107,18 @@ export class CouponsController {
   @HttpCode(HttpStatus.CREATED)
   @RequirePermissions('coupons.manage')
   @ApiOperation({ summary: 'Create a new coupon' })
-  @ApiBody({ schema: z.toJSONSchema(CreateCouponSchema) as unknown as ApiBodySchema })
+  @ApiBody({
+    schema: z.toJSONSchema(CreateCouponSchema, { io: 'input' }) as unknown as ApiBodySchema,
+  })
   @ApiResponse({ status: HttpStatus.CREATED, type: CouponEntity })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Code already exists' })
   async create(
+    @CurrentUser() actor: AuthUser,
+    @Ip() ip: string,
     @Body(new ZodValidationPipe(CreateCouponSchema)) dto: CreateCouponDto,
   ): Promise<{ message: string; data: CouponEntity }> {
-    const coupon = await this.couponsService.create(dto);
+    const coupon = await this.couponsService.create(dto, { actor, ip });
     return { message: 'Coupon created successfully', data: coupon };
   }
 
@@ -106,10 +132,12 @@ export class CouponsController {
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Coupon does not exist' })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Code already exists' })
   async update(
+    @CurrentUser() actor: AuthUser,
+    @Ip() ip: string,
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(UpdateCouponSchema)) dto: UpdateCouponDto,
   ): Promise<{ message: string; data: CouponEntity }> {
-    const coupon = await this.couponsService.update(id, dto);
+    const coupon = await this.couponsService.update(id, dto, { actor, ip });
     return { message: 'Coupon updated successfully', data: coupon };
   }
 
@@ -120,8 +148,16 @@ export class CouponsController {
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: HttpStatus.OK, description: 'Coupon deleted successfully' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Coupon does not exist' })
-  async remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string; data: null }> {
-    await this.couponsService.remove(id);
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: 'Coupon is on orders — switch it off instead',
+  })
+  async remove(
+    @CurrentUser() actor: AuthUser,
+    @Ip() ip: string,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ message: string; data: null }> {
+    await this.couponsService.remove(id, { actor, ip });
     return { message: 'Coupon deleted successfully', data: null };
   }
 

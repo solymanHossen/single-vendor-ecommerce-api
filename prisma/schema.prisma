@@ -370,6 +370,9 @@ model Order {
   // Code as typed at checkout (upper-cased); kept even if the coupon is
   // later deleted, so the discount on the invoice stays explainable.
   couponCode      String?        @map("coupon_code")
+  // Live link for usage accounting (rename-safe); SetNull keeps the order.
+  couponId        Int?           @map("coupon_id")
+  coupon          Coupon?        @relation(fields: [couponId], references: [id], onDelete: SetNull)
   note            String?        @db.VarChar(500)
   items           OrderItem[]
   payment         Payment?
@@ -381,6 +384,7 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  @@index([couponId, userId])
   @@map("orders")
 }
 
@@ -407,6 +411,8 @@ model OrderItem {
 enum DiscountType {
   PERCENTAGE
   FIXED_AMOUNT
+  // Waives the delivery fee; discountValue is unused (stored as 0).
+  FREE_SHIPPING
 }
 
 model Coupon {
@@ -417,13 +423,19 @@ model Coupon {
   minOrderAmount    Decimal?     @map("min_order_amount") @db.Decimal(12, 2)
   maxDiscountAmount Decimal?     @map("max_discount_amount") @db.Decimal(12, 2)
   usageLimit        Int?         @map("usage_limit")
+  // Uses allowed per customer (non-cancelled orders); null = unlimited.
+  perCustomerLimit  Int?         @map("per_customer_limit")
   usedCount         Int          @default(0) @map("used_count")
+  // Internal note for staff, never shown to shoppers.
+  description       String?      @db.VarChar(200)
   validFrom         DateTime     @map("valid_from")
   validUntil        DateTime     @map("valid_until")
   isActive          Boolean      @default(true) @map("is_active")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
+  orders            Order[]
 
+  @@index([isActive, validUntil])
   @@map("coupons")
 }
 

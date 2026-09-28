@@ -10,13 +10,16 @@ export const AUDIT_ACTIONS = [
   'role.updated',
   'role.deleted',
   'settings.updated',
+  'coupon.created',
+  'coupon.updated',
+  'coupon.deleted',
   'auth.password_changed',
   'auth.account_locked',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
-export const AUDIT_AREAS = ['user', 'role', 'settings', 'auth'] as const;
+export const AUDIT_AREAS = ['user', 'role', 'settings', 'coupon', 'auth'] as const;
 export type AuditArea = (typeof AUDIT_AREAS)[number];
 
 /** Keep three months of history unless AUDIT_LOG_RETENTION_DAYS says otherwise. */

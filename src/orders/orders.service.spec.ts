@@ -49,7 +49,7 @@ const mockPrisma = {
 };
 
 const mockCartsService = { getCart: jest.fn(), clearCart: jest.fn() };
-const mockCouponsService = { evaluate: jest.fn() };
+const mockCouponsService = { evaluate: jest.fn(), redeem: jest.fn(), release: jest.fn() };
 
 const customer: AuthUser = {
   id: 7,
@@ -347,17 +347,16 @@ describe('OrdersService', () => {
       mockPrisma.address.findFirst.mockResolvedValueOnce(address);
       mockCartsService.getCart.mockResolvedValueOnce(cart());
       stockRows();
-      mockCouponsService.evaluate.mockResolvedValueOnce({
-        code: 'FLASH20',
-        discountAmount: D(480),
-      });
+      const coupon = { couponId: 4, code: 'FLASH20', discountAmount: D(480), freeShipping: false };
+      mockCouponsService.evaluate.mockResolvedValueOnce(coupon);
 
       await service.placeOrder(7, { ...dto, couponCode: 'flash20' });
 
-      expect(mockCouponsService.evaluate).toHaveBeenCalledWith('flash20', D(2400));
-      expect(mockTx.$executeRaw).toHaveBeenCalled();
+      expect(mockCouponsService.evaluate).toHaveBeenCalledWith('flash20', D(2400), { userId: 7 });
+      expect(mockCouponsService.redeem).toHaveBeenCalledWith(mockTx, coupon, 7);
       const created = mockTx.order.create.mock.calls[0][0] as { data: Record<string, unknown> };
       expect(created.data.couponCode).toBe('FLASH20');
+      expect(created.data.couponId).toBe(4);
       expect(created.data.discountAmount).toEqual(D(480));
       expect(created.data.totalAmount).toEqual(D(1980));
     });
@@ -367,12 +366,31 @@ describe('OrdersService', () => {
       mockCartsService.getCart.mockResolvedValueOnce(cart());
       stockRows();
       mockCouponsService.evaluate.mockResolvedValueOnce({ code: 'FLASH20', discountAmount: D(1) });
-      mockTx.$executeRaw.mockResolvedValueOnce(0);
+      mockCouponsService.redeem.mockRejectedValueOnce(new ConflictException('used up'));
 
       await expect(service.placeOrder(7, { ...dto, couponCode: 'FLASH20' })).rejects.toThrow(
-        new ConflictException('This coupon just reached its usage limit.'),
+        ConflictException,
       );
       expect(mockTx.order.create).not.toHaveBeenCalled();
+    });
+
+    it('waives the delivery fee for a free-shipping coupon', async () => {
+      mockPrisma.address.findFirst.mockResolvedValueOnce(address);
+      mockCartsService.getCart.mockResolvedValueOnce(cart());
+      stockRows();
+      mockCouponsService.evaluate.mockResolvedValueOnce({
+        couponId: 5,
+        code: 'FREESHIP',
+        discountAmount: D(0),
+        freeShipping: true,
+      });
+
+      await service.placeOrder(7, { ...dto, couponCode: 'FREESHIP' });
+
+      const created = mockTx.order.create.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(created.data.shippingFee).toEqual(D(0));
+      expect(created.data.discountAmount).toEqual(D(0));
+      expect(created.data.totalAmount).toEqual(D(2400));
     });
 
     it('409s with every problem when fresh stock is short', async () => {
@@ -579,6 +597,7 @@ describe('OrdersService', () => {
       mockTx.order.updateMany.mockResolvedValueOnce({ count: 1 });
       mockTx.order.findUniqueOrThrow
         .mockResolvedValueOnce({
+          couponId: 4,
           couponCode: 'FLASH20',
           paymentStatus: 'UNPAID',
           payment: { provider: 'COD' },
@@ -597,7 +616,10 @@ describe('OrdersService', () => {
         data: { stockQuantity: { increment: 2 } },
       });
       expect(mockTx.product.update).toHaveBeenCalled(); // product re-synced to its variants
-      expect(mockTx.$executeRaw).toHaveBeenCalled(); // coupon released
+      expect(mockCouponsService.release).toHaveBeenCalledWith(
+        mockTx,
+        expect.objectContaining({ couponId: 4, couponCode: 'FLASH20' }),
+      );
       expect(order.status).toBe('CANCELLED');
       expect(order.nextStatuses).toEqual([]);
     });

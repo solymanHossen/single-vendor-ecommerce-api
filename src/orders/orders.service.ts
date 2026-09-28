@@ -137,7 +137,7 @@ function totalsFor(
   rules: ShippingRules,
 ): Totals {
   const discount = coupon?.discountAmount ?? ZERO;
-  const shipping = shippingFor(city, subtotal, rules);
+  const shipping = coupon?.freeShipping ? ZERO : shippingFor(city, subtotal, rules);
   return {
     subtotal,
     discount,
@@ -197,7 +197,7 @@ export class OrdersService {
     let couponError: string | null = null;
     if (dto.couponCode && cart.items.length > 0) {
       try {
-        coupon = await this.couponsService.evaluate(dto.couponCode, cart.totalPrice);
+        coupon = await this.couponsService.evaluate(dto.couponCode, cart.totalPrice, { userId });
       } catch (error: unknown) {
         if (!(error instanceof HttpException)) throw error;
         couponError = error.message;
@@ -289,9 +289,9 @@ export class OrdersService {
       );
 
       const coupon = dto.couponCode
-        ? await this.couponsService.evaluate(dto.couponCode, subtotal)
+        ? await this.couponsService.evaluate(dto.couponCode, subtotal, { userId })
         : null;
-      if (coupon) await this.consumeCoupon(tx, coupon.code);
+      if (coupon) await this.couponsService.redeem(tx, coupon, userId);
 
       await this.takeStock(tx, priced);
 
@@ -314,6 +314,7 @@ export class OrdersService {
           discountAmount: totals.discount,
           shippingFee: totals.shipping ?? ZERO,
           couponCode: coupon?.code ?? null,
+          couponId: coupon?.couponId ?? null,
           note: dto.note || null,
           // Every field is a plain string/null, which Prisma.InputJsonValue
           // accepts at runtime; the interface just lacks an index signature.
@@ -484,6 +485,7 @@ export class OrdersService {
       const current = await tx.order.findUniqueOrThrow({
         where: { id },
         select: {
+          couponId: true,
           couponCode: true,
           paymentStatus: true,
           payment: { select: { provider: true } },
@@ -493,7 +495,7 @@ export class OrdersService {
 
       if (to === OrderStatus.CANCELLED && RESTOCK_ON_CANCEL_STATUSES.includes(from)) {
         await this.returnStock(tx, current.items);
-        if (current.couponCode) await this.releaseCoupon(tx, current.couponCode);
+        await this.couponsService.release(tx, current);
       }
 
       // Cash on delivery is collected by the courier: delivered ⇒ paid.
@@ -650,23 +652,6 @@ export class OrdersService {
         select: { id: true },
       });
     }
-  }
-
-  /** Atomic "use one": fails if the limit was reached by a concurrent checkout. */
-  private async consumeCoupon(tx: Prisma.TransactionClient, code: string): Promise<void> {
-    const updated = await tx.$executeRaw`
-      UPDATE coupons SET used_count = used_count + 1, updated_at = NOW()
-      WHERE code = ${code} AND is_active = TRUE
-        AND (usage_limit IS NULL OR used_count < usage_limit)`;
-    if (updated === 0) {
-      throw new ConflictException('This coupon just reached its usage limit.');
-    }
-  }
-
-  private async releaseCoupon(tx: Prisma.TransactionClient, code: string): Promise<void> {
-    await tx.$executeRaw`
-      UPDATE coupons SET used_count = GREATEST(used_count - 1, 0), updated_at = NOW()
-      WHERE code = ${code}`;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
