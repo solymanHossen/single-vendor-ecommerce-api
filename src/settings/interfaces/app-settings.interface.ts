@@ -23,6 +23,8 @@ export interface AppSettings {
   shippingFeeInsideDhaka: number;
   shippingFeeOutsideDhaka: number;
   freeShippingThreshold: number;
+  // Inventory
+  lowStockThreshold: number;
   // Announcement bar
   announcementEnabled: boolean;
   announcementMessage: string;

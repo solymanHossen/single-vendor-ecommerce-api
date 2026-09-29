@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { StockMovementType, type Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { StockLedgerService } from '../inventory/stock-ledger.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto, ProductSortField } from './dto/query-product.dto';
@@ -26,6 +27,7 @@ const PRODUCT_SELECT = {
   discountPrice: true,
   sku: true,
   stockQuantity: true,
+  lowStockThreshold: true,
   isPublished: true,
   metaTitle: true,
   metaDesc: true,
@@ -67,7 +69,10 @@ export interface PaginatedProductsResult {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: StockLedgerService,
+  ) {}
 
   async findAll(query: ProductQueryDto): Promise<PaginatedProductsEntity> {
     const where = this.buildWhere(query);
@@ -110,25 +115,40 @@ export class ProductsService {
     return this.toEntity(product);
   }
 
-  async create(dto: CreateProductDto): Promise<ProductEntity> {
-    const { images, ...scalarData } = dto;
+  async create(dto: CreateProductDto, actorId?: number): Promise<ProductEntity> {
+    const { images, stockQuantity, ...scalarData } = dto;
 
-    const product = await this.prisma.product.create({
-      data:
-        images && images.length > 0 ? { ...scalarData, images: { create: images } } : scalarData,
-      select: PRODUCT_SELECT,
+    // Created at 0, then stocked through the ledger: the opening count is on record.
+    const product = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({
+        data:
+          images && images.length > 0 ? { ...scalarData, images: { create: images } } : scalarData,
+        select: { id: true },
+      });
+      if (stockQuantity > 0) {
+        await this.ledger.apply(tx, [
+          {
+            productId: created.id,
+            variantId: null,
+            delta: stockQuantity,
+            type: StockMovementType.INITIAL,
+            actorId,
+          },
+        ]);
+      }
+      return tx.product.findUniqueOrThrow({ where: { id: created.id }, select: PRODUCT_SELECT });
     });
 
     return this.toEntity(product);
   }
 
-  async update(id: number, dto: UpdateProductDto): Promise<ProductEntity> {
-    const { images, ...scalarData } = dto;
+  async update(id: number, dto: UpdateProductDto, actorId?: number): Promise<ProductEntity> {
+    const { images, stockQuantity, ...scalarData } = dto;
 
     // A product with variants derives its stock from them (kept in sync by
     // ProductVariantsService), so a direct write would be overwritten on the
     // next variant change — refuse it instead of silently losing the value.
-    if (scalarData.stockQuantity !== undefined) {
+    if (stockQuantity !== undefined) {
       const variantCount = await this.prisma.productVariant.count({ where: { productId: id } });
       if (variantCount > 0) {
         throw new BadRequestException(
@@ -137,16 +157,27 @@ export class ProductsService {
       }
     }
 
-    const product = await this.prisma.product.update({
-      where: { id },
-      // Nested write executed as a single Prisma call: replaces the
-      // product's entire image set atomically rather than looping
-      // create/delete calls from application code.
-      data:
-        images !== undefined
-          ? { ...scalarData, images: { deleteMany: {}, create: images } }
-          : scalarData,
-      select: PRODUCT_SELECT,
+    const product = await this.prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id },
+        // Nested write executed as a single Prisma call: replaces the
+        // product's entire image set atomically rather than looping
+        // create/delete calls from application code.
+        data:
+          images !== undefined
+            ? { ...scalarData, images: { deleteMany: {}, create: images } }
+            : scalarData,
+        select: { id: true },
+      });
+      // A typed count from the editor is a recount — on record, row-locked.
+      if (stockQuantity !== undefined) {
+        await this.ledger.set(tx, { productId: id, variantId: null }, stockQuantity, {
+          type: StockMovementType.RECOUNT,
+          actorId,
+          note: 'Set on the product page',
+        });
+      }
+      return tx.product.findUniqueOrThrow({ where: { id }, select: PRODUCT_SELECT });
     });
 
     return this.toEntity(product);
@@ -235,6 +266,7 @@ export class ProductsService {
       discountPrice: product.discountPrice,
       sku: product.sku,
       stockQuantity: product.stockQuantity,
+      lowStockThreshold: product.lowStockThreshold,
       isPublished: product.isPublished,
       metaTitle: product.metaTitle,
       metaDesc: product.metaDesc,

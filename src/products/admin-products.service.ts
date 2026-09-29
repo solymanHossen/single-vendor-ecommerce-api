@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { LOW_STOCK_THRESHOLD } from './products.constants';
+import { SettingsService } from '../settings/settings.service';
+import { stockLevelWhere, type StockLevel } from '../inventory/stock-levels';
 import type { AdminProductQueryDto, AdminProductSortField } from './dto/admin-product-query.dto';
 import type { BulkProductStatusDto } from './dto/bulk-product-status.dto';
 import { PaginationMetaEntity } from './entities/product.entity';
@@ -35,21 +36,24 @@ const ADMIN_PRODUCT_ROW_SELECT = {
 
 type AdminProductRow = Prisma.ProductGetPayload<{ select: typeof ADMIN_PRODUCT_ROW_SELECT }>;
 
-const STOCK_FILTERS = {
-  in: { gt: LOW_STOCK_THRESHOLD },
-  low: { gt: 0, lte: LOW_STOCK_THRESHOLD },
-  out: { equals: 0 },
-} satisfies Record<string, Prisma.IntFilter<'Product'>>;
-
 @Injectable()
 export class AdminProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+  ) {}
 
   async findAll(query: AdminProductQueryDto): Promise<PaginatedAdminProductsEntity> {
     const scope = this.buildScope(query);
-    const where: Prisma.ProductWhereInput = { ...scope };
+    // Low stock honours each product's own threshold, else the store default.
+    const { lowStockThreshold } = await this.settings.getSettings();
+    const level = (value: StockLevel) =>
+      stockLevelWhere(value, lowStockThreshold, this.prisma.product.fields.lowStockThreshold);
+    const where: Prisma.ProductWhereInput = {
+      ...scope,
+      ...(query.stock !== 'all' && level(query.stock)),
+    };
     if (query.status !== 'all') where.isPublished = query.status === 'published';
-    if (query.stock !== 'all') where.stockQuantity = STOCK_FILTERS[query.stock];
 
     // One round trip: the page, its total and every tab count.
     const [rows, total, all, published, lowStock, outOfStock] = await this.prisma.$transaction([
@@ -63,8 +67,8 @@ export class AdminProductsService {
       this.prisma.product.count({ where }),
       this.prisma.product.count({ where: scope }),
       this.prisma.product.count({ where: { ...scope, isPublished: true } }),
-      this.prisma.product.count({ where: { ...scope, stockQuantity: STOCK_FILTERS.low } }),
-      this.prisma.product.count({ where: { ...scope, stockQuantity: STOCK_FILTERS.out } }),
+      this.prisma.product.count({ where: { ...scope, ...level('low') } }),
+      this.prisma.product.count({ where: { ...scope, ...level('out') } }),
     ]);
 
     return new PaginatedAdminProductsEntity({
@@ -81,7 +85,7 @@ export class AdminProductsService {
         draft: all - published,
         lowStock,
         outOfStock,
-        lowStockThreshold: LOW_STOCK_THRESHOLD,
+        lowStockThreshold,
       }),
     });
   }

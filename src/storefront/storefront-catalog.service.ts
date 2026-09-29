@@ -4,6 +4,8 @@ import { PrismaService } from '../database/prisma.service';
 import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
 import { applyCampaign, offerLabel, type CampaignOffer } from '../campaigns/campaign-pricing';
 import { linePrice } from '../carts/cart-pricing';
+import { SettingsService } from '../settings/settings.service';
+import { effectiveThreshold } from '../inventory/stock-levels';
 import {
   BEST_SELLER_WINDOW_DAYS,
   NEW_ARRIVAL_WINDOW_DAYS,
@@ -53,6 +55,7 @@ const CARD_SELECT = {
   name: true,
   slug: true,
   categoryId: true,
+  lowStockThreshold: true,
   basePrice: true,
   discountPrice: true,
   stockQuantity: true,
@@ -71,6 +74,7 @@ const DETAIL_SELECT = {
   name: true,
   slug: true,
   categoryId: true,
+  lowStockThreshold: true,
   description: true,
   basePrice: true,
   discountPrice: true,
@@ -168,6 +172,7 @@ export class StorefrontCatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly campaignPricing: CampaignPricingService,
+    private readonly settings: SettingsService,
   ) {}
 
   // ── Listing ────────────────────────────────────────────────────────────────
@@ -258,6 +263,7 @@ export class StorefrontCatalogService {
       this.loadCategories(),
     ]);
     const offers = (await this.campaignPricing.offersFor([product])).get(product.id);
+    const { lowStockThreshold } = await this.settings.getSettings();
     const productPrice = applyCampaign(linePrice(product, null), offers);
 
     return new ProductDetailEntity({
@@ -271,6 +277,7 @@ export class StorefrontCatalogService {
         : null,
       sku: product.sku,
       stockQuantity: product.stockQuantity,
+      lowStockThreshold: effectiveThreshold(product.lowStockThreshold, lowStockThreshold),
       metaTitle: product.metaTitle,
       metaDesc: product.metaDesc,
       category: new CatalogAppliedCategoryEntity({
@@ -511,11 +518,24 @@ export class StorefrontCatalogService {
     });
     const rowById = new Map(rows.map((row) => [row.id, row]));
     const newSince = Date.now() - NEW_ARRIVAL_WINDOW_DAYS * MS_PER_DAY;
-    const offers = await this.campaignPricing.offersFor(rows);
+    const [offers, { lowStockThreshold }] = await Promise.all([
+      this.campaignPricing.offersFor(rows),
+      this.settings.getSettings(),
+    ]);
 
     return ranked.flatMap((rank) => {
       const row = rowById.get(rank.id);
-      return row ? [this.toCard(row, rank, newSince, offers.get(row.id))] : [];
+      return row
+        ? [
+            this.toCard(
+              row,
+              rank,
+              newSince,
+              offers.get(row.id),
+              effectiveThreshold(row.lowStockThreshold, lowStockThreshold),
+            ),
+          ]
+        : [];
     });
   }
 
@@ -524,6 +544,7 @@ export class StorefrontCatalogService {
     rank: RankedRow,
     newSince: number,
     offers: CampaignOffer[] | undefined,
+    lowStockThreshold: number,
   ): CatalogProductCardEntity {
     const price = applyCampaign(linePrice(row, null), offers);
     return new CatalogProductCardEntity({
@@ -536,6 +557,7 @@ export class StorefrontCatalogService {
       // The sale or campaign price, whichever the shopper actually pays.
       discountPrice: price.unitPrice.lessThan(row.basePrice) ? price.unitPrice.toString() : null,
       stockQuantity: row.stockQuantity,
+      lowStockThreshold,
       categoryName: row.category.name,
       categorySlug: row.category.slug,
       ratingAverage: roundRating(Number(rank.avg_rating)),

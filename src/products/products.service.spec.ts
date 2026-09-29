@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ProductsService } from './products.service';
 import { PrismaService } from '../database/prisma.service';
+import { StockLedgerService } from '../inventory/stock-ledger.service';
 import type { ProductQueryDto } from './dto/query-product.dto';
 
 const mockPrisma = {
@@ -9,6 +10,7 @@ const mockPrisma = {
     findMany: jest.fn(),
     count: jest.fn(),
     findFirstOrThrow: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
@@ -17,6 +19,11 @@ const mockPrisma = {
   orderItem: { count: jest.fn() },
   $transaction: jest.fn(),
 };
+
+// Interactive transactions run against the same mock client.
+const mockTx = mockPrisma;
+
+const mockLedger = { apply: jest.fn(), set: jest.fn() };
 
 const baseQuery: ProductQueryDto = {
   page: 1,
@@ -35,6 +42,7 @@ const sampleRow = {
   discountPrice: null,
   sku: 'IPH17PRO',
   stockQuantity: 10,
+  lowStockThreshold: null,
   isPublished: true,
   metaTitle: null,
   metaDesc: null,
@@ -63,11 +71,23 @@ describe('ProductsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ProductsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        ProductsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: StockLedgerService, useValue: mockLedger },
+      ],
     }).compile();
 
     service = module.get<ProductsService>(ProductsService);
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: typeof mockTx) => Promise<unknown>)(mockTx)
+        : Promise.resolve(arg),
+    );
+    mockPrisma.product.create.mockResolvedValue({ id: 1 });
+    mockPrisma.product.update.mockResolvedValue({ id: 1 });
+    mockPrisma.product.findUniqueOrThrow.mockResolvedValue(sampleRow);
   });
 
   describe('findAll()', () => {
@@ -169,8 +189,6 @@ describe('ProductsService', () => {
 
   describe('create()', () => {
     it('creates a product without a nested images write when none are provided', async () => {
-      mockPrisma.product.create.mockResolvedValueOnce(sampleRow);
-
       await service.create({
         categoryId: 2,
         name: 'iPhone 17 Pro',
@@ -188,9 +206,51 @@ describe('ProductsService', () => {
       expect(callArgs.data).not.toHaveProperty('images');
     });
 
-    it('creates a product with a nested images.create write when images are provided', async () => {
-      mockPrisma.product.create.mockResolvedValueOnce(sampleRow);
+    it('creates at zero stock, then records the opening count through the ledger', async () => {
+      const result = await service.create(
+        {
+          categoryId: 2,
+          name: 'iPhone 17 Pro',
+          slug: 'iphone-17-pro',
+          description: 'Flagship phone',
+          basePrice: 999,
+          sku: 'IPH17PRO',
+          stockQuantity: 10,
+          isPublished: true,
+        },
+        9,
+      );
 
+      const callArgs = mockPrisma.product.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(callArgs.data).not.toHaveProperty('stockQuantity');
+      expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+        { productId: 1, variantId: null, delta: 10, type: 'INITIAL', actorId: 9 },
+      ]);
+      expect(mockPrisma.product.findUniqueOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 1 } }),
+      );
+      expect(result.stockQuantity).toBe(10);
+      expect(result.lowStockThreshold).toBeNull();
+    });
+
+    it('skips the ledger when the product starts with no stock', async () => {
+      await service.create({
+        categoryId: 2,
+        name: 'iPhone 17 Pro',
+        slug: 'iphone-17-pro',
+        description: 'Flagship phone',
+        basePrice: 999,
+        sku: 'IPH17PRO',
+        stockQuantity: 0,
+        isPublished: true,
+      });
+
+      expect(mockLedger.apply).not.toHaveBeenCalled();
+    });
+
+    it('creates a product with a nested images.create write when images are provided', async () => {
       await service.create({
         categoryId: 2,
         name: 'iPhone 17 Pro',
@@ -232,31 +292,31 @@ describe('ProductsService', () => {
         BadRequestException,
       );
       expect(mockPrisma.product.update).not.toHaveBeenCalled();
+      expect(mockLedger.set).not.toHaveBeenCalled();
     });
 
     it('allows a stock write when the product has no variants', async () => {
       mockPrisma.productVariant.count.mockResolvedValueOnce(0);
-      mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
-
-      await service.update(1, { stockQuantity: 9 });
+      await service.update(1, { stockQuantity: 9 }, 9);
 
       expect(mockPrisma.productVariant.count).toHaveBeenCalledWith({ where: { productId: 1 } });
-      expect(mockPrisma.product.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { stockQuantity: 9 } }),
-      );
+      // The count goes through the ledger as a recount, never as a plain column write.
+      expect(mockPrisma.product.update).toHaveBeenCalledWith(expect.objectContaining({ data: {} }));
+      expect(mockLedger.set).toHaveBeenCalledWith(mockTx, { productId: 1, variantId: null }, 9, {
+        type: 'RECOUNT',
+        actorId: 9,
+        note: 'Set on the product page',
+      });
     });
 
     it('skips the variant check when stock is not being changed', async () => {
-      mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
-
       await service.update(1, { name: 'Renamed' });
 
       expect(mockPrisma.productVariant.count).not.toHaveBeenCalled();
+      expect(mockLedger.set).not.toHaveBeenCalled();
     });
 
     it('replaces the image set with deleteMany + create when images are provided', async () => {
-      mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
-
       await service.update(1, {
         images: [{ url: 'https://cdn.example.com/2.jpg', isThumbnail: false }],
       });
@@ -271,8 +331,6 @@ describe('ProductsService', () => {
     });
 
     it('leaves images untouched when not provided', async () => {
-      mockPrisma.product.update.mockResolvedValueOnce(sampleRow);
-
       await service.update(1, { name: 'Renamed' });
 
       const callArgs = mockPrisma.product.update.mock.calls[0][0] as {

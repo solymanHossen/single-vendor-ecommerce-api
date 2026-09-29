@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_STOCK } from '../../inventory/inventory.constants';
 
 const MAX_DECIMAL_AMOUNT = 999_999_999.99;
 
@@ -6,7 +7,7 @@ export const CreateProductVariantSchema = z
   .object({
     sku: z.string().trim().min(1, 'sku is required').max(100),
     price: z.number().positive().max(MAX_DECIMAL_AMOUNT),
-    stockQuantity: z.number().int().min(0).default(0),
+    stockQuantity: z.number().int().min(0).max(MAX_STOCK).default(0),
     imageUrl: z.string().trim().url().max(1000).optional(),
     attributeOptionIds: z
       .array(z.number().int().positive())

@@ -102,12 +102,17 @@ describe('OrdersController', () => {
     expect(result).toEqual({ message: 'Order cancelled successfully', data: sampleOrder });
   });
 
-  it('updateStatus() delegates with id and dto', async () => {
+  it('updateStatus() delegates with id, dto and the acting staff member', async () => {
     mockOrdersService.updateStatus.mockResolvedValueOnce(sampleOrder);
 
-    await controller.updateStatus(301, { status: 'SHIPPED' });
+    const result = await controller.updateStatus(currentUser, 301, { status: 'SHIPPED' });
 
-    expect(mockOrdersService.updateStatus).toHaveBeenCalledWith(301, { status: 'SHIPPED' });
+    expect(mockOrdersService.updateStatus).toHaveBeenCalledWith(
+      301,
+      { status: 'SHIPPED' },
+      currentUser,
+    );
+    expect(result).toEqual({ message: 'Order status updated successfully', data: sampleOrder });
   });
 
   describe('DTOs', () => {

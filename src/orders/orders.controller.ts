@@ -188,10 +188,11 @@ export class OrdersController {
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Order does not exist' })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'The order changed concurrently' })
   async updateStatus(
+    @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(UpdateOrderStatusSchema)) dto: UpdateOrderStatusDto,
   ): Promise<{ message: string; data: OrderEntity }> {
-    const order = await this.ordersService.updateStatus(id, dto);
+    const order = await this.ordersService.updateStatus(id, dto, actor);
     return { message: 'Order status updated successfully', data: order };
   }
 }

@@ -96,15 +96,15 @@ describe('ReturnsController', () => {
   });
 
   describe('updateStatus()', () => {
-    it('delegates to the service with id and dto', async () => {
+    it('delegates to the service with id, dto and the actor id', async () => {
       mockReturnsService.updateStatus.mockResolvedValueOnce({
         ...sampleReturn,
         status: 'APPROVED',
       });
 
-      const result = await controller.updateStatus(1, { status: 'APPROVED' });
+      const result = await controller.updateStatus(currentUser, 1, { status: 'APPROVED' });
 
-      expect(mockReturnsService.updateStatus).toHaveBeenCalledWith(1, { status: 'APPROVED' });
+      expect(mockReturnsService.updateStatus).toHaveBeenCalledWith(1, { status: 'APPROVED' }, 7);
       expect(result).toEqual({
         message: 'Return request status updated successfully',
         data: { ...sampleReturn, status: 'APPROVED' },

@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatus, PaymentStatus, Prisma, ReturnStatus } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentStatus,
+  Prisma,
+  ReturnStatus,
+  StockMovementType,
+} from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { StockLedgerService } from '../inventory/stock-ledger.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { CreateReturnRequestDto } from './dto/create-return-request.dto';
 import { UpdateReturnStatusDto } from './dto/update-return-status.dto';
@@ -27,7 +34,10 @@ type ReturnRequestRow = Prisma.ReturnRequestGetPayload<{ select: typeof RETURN_R
 
 @Injectable()
 export class ReturnsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: StockLedgerService,
+  ) {}
 
   async create(userId: number, dto: CreateReturnRequestDto): Promise<ReturnRequestEntity> {
     const order = await this.prisma.order.findFirst({
@@ -107,7 +117,11 @@ export class ReturnsService {
     return this.toEntity(returnRequest);
   }
 
-  async updateStatus(id: number, dto: UpdateReturnStatusDto): Promise<ReturnRequestEntity> {
+  async updateStatus(
+    id: number,
+    dto: UpdateReturnStatusDto,
+    actorId?: number,
+  ): Promise<ReturnRequestEntity> {
     if (dto.status !== ReturnStatus.REFUNDED) {
       const returnRequest = await this.prisma.returnRequest.update({
         where: { id },
@@ -128,11 +142,39 @@ export class ReturnsService {
         select: RETURN_REQUEST_SELECT,
       });
 
-      await tx.order.update({
+      const order = await tx.order.update({
         where: { id: updated.orderId },
         data: { status: OrderStatus.RETURNED, paymentStatus: PaymentStatus.REFUNDED },
-        select: { id: true },
+        select: {
+          stockRestoredAt: true,
+          items: { select: { productId: true, variantId: true, quantity: true } },
+        },
       });
+
+      // Back on the shelf (default) or written off — recorded once per order,
+      // even if the order was also marked Returned from the orders screen.
+      if (order.stockRestoredAt === null) {
+        const writeOff = dto.restock === false;
+        await this.ledger.apply(
+          tx,
+          order.items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            delta: writeOff ? 0 : item.quantity,
+            type: writeOff
+              ? StockMovementType.RETURN_WRITTEN_OFF
+              : StockMovementType.RETURN_RESTOCKED,
+            orderId: updated.orderId,
+            actorId: actorId ?? null,
+            note: writeOff ? `${item.quantity} unit(s) not resellable` : `Return #${id}`,
+          })),
+        );
+        await tx.order.update({
+          where: { id: updated.orderId },
+          data: { stockRestoredAt: new Date() },
+          select: { id: true },
+        });
+      }
 
       return updated;
     });

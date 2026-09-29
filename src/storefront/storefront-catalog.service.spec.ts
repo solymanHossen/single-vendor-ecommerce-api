@@ -5,12 +5,16 @@ import { StorefrontCatalogService } from './storefront-catalog.service';
 import { PrismaService } from '../database/prisma.service';
 import type { CatalogQueryDto } from './dto/catalog-query.dto';
 import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+import { SettingsService } from '../settings/settings.service';
 
 /** No live campaigns: regular prices only. */
 const noCampaigns = {
   offersFor: () => Promise.resolve(new Map()),
   productIdsFor: () => Promise.resolve([]),
 };
+
+/** Store default low-stock threshold (plain function: survives resetAllMocks). */
+const settingsStub = { getSettings: () => Promise.resolve({ lowStockThreshold: 5 }) };
 
 const mockPrisma = {
   category: { findMany: jest.fn() },
@@ -38,6 +42,7 @@ function cardRow(id: number): Record<string, unknown> {
     basePrice: new Prisma.Decimal(1000),
     discountPrice: new Prisma.Decimal(800),
     stockQuantity: 5,
+    lowStockThreshold: id === 7 ? 10 : null,
     createdAt: new Date(),
     category: { name: 'Audio', slug: 'audio' },
     images: [
@@ -80,6 +85,7 @@ describe('StorefrontCatalogService', () => {
         StorefrontCatalogService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CampaignPricingService, useValue: noCampaigns },
+        { provide: SettingsService, useValue: settingsStub },
       ],
     }).compile();
 
@@ -119,6 +125,18 @@ describe('StorefrontCatalogService', () => {
       expect(page.items[0]?.discountPrice).toBe('800');
       expect(page.category?.parent?.slug).toBe('electronics');
       expect(page.meta).toEqual({ page: 1, limit: 24, total: 5, totalPages: 1 });
+    });
+
+    it("exposes each card's effective low-stock threshold (own, else the store's)", async () => {
+      arrangeRawQueries([
+        { id: 7, avg_rating: 0, review_count: 0 },
+        { id: 3, avg_rating: 0, review_count: 0 },
+      ]);
+      mockPrisma.product.findMany.mockResolvedValue([cardRow(3), cardRow(7)]);
+
+      const page = await service.listProducts(baseQuery);
+
+      expect(page.items.map((item) => item.lowStockThreshold)).toEqual([10, 5]);
     });
 
     it('builds a pruned facet tree with rolled-up counts and a price range', async () => {
@@ -164,6 +182,7 @@ describe('StorefrontCatalogService', () => {
         discountPrice: null,
         sku: 'PHN-001',
         stockQuantity: 4,
+        lowStockThreshold: null,
         metaTitle: null,
         metaDesc: null,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -232,6 +251,8 @@ describe('StorefrontCatalogService', () => {
       });
       expect(product.recentlySold).toBe(7);
       expect(product.category.parent?.slug).toBe('electronics');
+      // No threshold of its own: the store default applies.
+      expect(product.lowStockThreshold).toBe(5);
     });
   });
 });

@@ -1,4 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { Role } from '@prisma/client';
+import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ProductVariantsController } from './product-variants.controller';
 import { ProductVariantsService } from './product-variants.service';
 import { ProductVariantEntity } from './entities/product-variant.entity';
@@ -22,6 +24,14 @@ const sampleVariant = new ProductVariantEntity({
   createdAt: new Date(),
   updatedAt: new Date(),
 });
+
+const actor: AuthUser = {
+  id: 9,
+  email: 'staff@shop.test',
+  role: Role.ADMIN,
+  isActive: true,
+  permissions: [],
+};
 
 describe('ProductVariantsController', () => {
   let controller: ProductVariantsController;
@@ -60,9 +70,9 @@ describe('ProductVariantsController', () => {
         attributeOptionIds: [10],
       };
 
-      const result = await controller.create(101, dto);
+      const result = await controller.create(actor, 101, dto);
 
-      expect(mockProductVariantsService.create).toHaveBeenCalledWith(101, dto);
+      expect(mockProductVariantsService.create).toHaveBeenCalledWith(101, dto, 9);
       expect(result).toEqual({
         message: 'Product variant created successfully',
         data: sampleVariant,
@@ -88,9 +98,9 @@ describe('ProductVariantsController', () => {
     it('delegates to the service with id and dto', async () => {
       mockProductVariantsService.update.mockResolvedValueOnce(sampleVariant);
 
-      const result = await controller.update(201, { price: 899 });
+      const result = await controller.update(actor, 201, { price: 899 });
 
-      expect(mockProductVariantsService.update).toHaveBeenCalledWith(201, { price: 899 });
+      expect(mockProductVariantsService.update).toHaveBeenCalledWith(201, { price: 899 }, 9);
       expect(result).toEqual({
         message: 'Product variant updated successfully',
         data: sampleVariant,

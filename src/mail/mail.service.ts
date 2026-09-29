@@ -67,4 +67,63 @@ export class MailService {
         `<p>— The ${escapeHtml(appName)} Support Team</p>`,
     });
   }
+
+  /** "It's back" — sent once to each shopper who asked. */
+  async sendBackInStockEmail(mail: {
+    to: string;
+    productName: string;
+    variantLabel: string | null;
+    url: string;
+  }): Promise<void> {
+    const appName = this.appIdentity.name;
+    const item = mail.variantLabel
+      ? `${mail.productName} (${mail.variantLabel})`
+      : mail.productName;
+    await this.provider.send({
+      to: mail.to,
+      subject: `Back in stock: ${item}`,
+      text:
+        `Good news — ${item} is back in stock at ${appName}.\n\n` +
+        `Popular items can sell out again quickly: ${mail.url}\n\n— The ${appName} Team`,
+      html:
+        `<p>Good news — <strong>${escapeHtml(item)}</strong> is back in stock at ${escapeHtml(appName)}.</p>` +
+        `<p>Popular items can sell out again quickly.</p>` +
+        `<p><a href="${escapeHtml(mail.url)}">Shop it now</a></p>` +
+        `<p>— The ${escapeHtml(appName)} Team</p>`,
+    });
+  }
+
+  /** Daily "running low" summary for the people who manage the catalogue. */
+  async sendLowStockDigest(mail: {
+    to: string;
+    out: number;
+    low: number;
+    items: Array<{
+      name: string;
+      variantLabel: string | null;
+      sku: string;
+      onHand: number;
+      daysOfCover: number | null;
+    }>;
+    url: string;
+  }): Promise<void> {
+    const appName = this.appIdentity.name;
+    const title = `${mail.out} out of stock, ${mail.low} running low`;
+    const line = (item: (typeof mail.items)[number]) =>
+      `${item.name}${item.variantLabel ? ` (${item.variantLabel})` : ''} — ${item.onHand === 0 ? 'OUT' : `${item.onHand} left`}` +
+      (item.daysOfCover !== null && item.onHand > 0 ? `, ~${item.daysOfCover} days` : '');
+    await this.provider.send({
+      to: mail.to,
+      subject: `[${appName}] Stock: ${title}`,
+      text: `${title}\n\n${mail.items.map((item) => `• ${line(item)}`).join('\n')}\n\nOpen inventory: ${mail.url}`,
+      html:
+        `<p><strong>${escapeHtml(title)}</strong></p><ul>` +
+        mail.items
+          .map(
+            (item) => `<li>${escapeHtml(line(item))} <small>(${escapeHtml(item.sku)})</small></li>`,
+          )
+          .join('') +
+        `</ul><p><a href="${escapeHtml(mail.url)}">Open inventory</a></p>`,
+    });
+  }
 }

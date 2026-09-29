@@ -6,10 +6,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, PaymentProvider, PaymentStatus, Prisma } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentProvider,
+  PaymentStatus,
+  Prisma,
+  StockMovementType,
+} from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CartsService } from '../carts/carts.service';
 import { linePrice, variantLabel } from '../carts/cart-pricing';
+import { InsufficientStockError, StockLedgerService } from '../inventory/stock-ledger.service';
 import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
 import { applyCampaign } from '../campaigns/campaign-pricing';
 import type { CartEntity } from '../carts/entities/cart.entity';
@@ -176,6 +183,7 @@ export class OrdersService {
     private readonly couponsService: CouponsService,
     private readonly settingsService: SettingsService,
     private readonly campaignPricing: CampaignPricingService,
+    private readonly ledger: StockLedgerService,
   ) {}
 
   // ── Checkout ──────────────────────────────────────────────────────────────
@@ -297,8 +305,6 @@ export class OrdersService {
         : null;
       if (coupon) await this.couponsService.redeem(tx, coupon, userId);
 
-      await this.takeStock(tx, priced);
-
       const totals = totalsFor(subtotal, coupon, address.city, rules);
       const snapshot: ShippingAddressEntityInput = {
         recipientName,
@@ -311,7 +317,7 @@ export class OrdersService {
         country: address.country,
       };
 
-      return tx.order.create({
+      const created = await tx.order.create({
         data: {
           userId,
           totalAmount: totals.total,
@@ -338,6 +344,9 @@ export class OrdersService {
         },
         select: ORDER_SELECT,
       });
+      // Same transaction: if any line is short, the whole order rolls back.
+      await this.takeStock(tx, priced, created.id, userId);
+      return created;
     });
 
     // Cart clearing is best-effort and deliberately outside the DB
@@ -450,10 +459,14 @@ export class OrdersService {
       );
     }
 
-    return this.transition(id, order.status, OrderStatus.CANCELLED);
+    return this.transition(id, order.status, OrderStatus.CANCELLED, { actorId: requester.id });
   }
 
-  async updateStatus(id: number, dto: UpdateOrderStatusDto): Promise<OrderEntity> {
+  async updateStatus(
+    id: number,
+    dto: UpdateOrderStatusDto,
+    actor?: AuthUser,
+  ): Promise<OrderEntity> {
     const order = await this.prisma.order.findUniqueOrThrow({
       where: { id },
       select: { status: true },
@@ -466,7 +479,10 @@ export class OrdersService {
         `An order can't move from ${order.status.toLowerCase()} to ${dto.status.toLowerCase()}.`,
       );
     }
-    return this.transition(id, order.status, dto.status);
+    return this.transition(id, order.status, dto.status, {
+      actorId: actor?.id ?? null,
+      restock: dto.restock,
+    });
   }
 
   /**
@@ -475,7 +491,12 @@ export class OrdersService {
    * (two admins, or admin vs. customer cancel) fail loudly instead of both
    * restocking.
    */
-  private async transition(id: number, from: OrderStatus, to: OrderStatus): Promise<OrderEntity> {
+  private async transition(
+    id: number,
+    from: OrderStatus,
+    to: OrderStatus,
+    options: { actorId?: number | null; restock?: boolean } = {},
+  ): Promise<OrderEntity> {
     const row = await this.prisma.$transaction(async (tx) => {
       const moved = await tx.order.updateMany({
         where: { id, status: from },
@@ -492,6 +513,7 @@ export class OrdersService {
         select: {
           couponId: true,
           couponCode: true,
+          stockRestoredAt: true,
           paymentStatus: true,
           payment: { select: { provider: true } },
           items: { select: { productId: true, variantId: true, quantity: true } },
@@ -499,8 +521,32 @@ export class OrdersService {
       });
 
       if (to === OrderStatus.CANCELLED && RESTOCK_ON_CANCEL_STATUSES.includes(from)) {
-        await this.returnStock(tx, current.items);
+        await this.returnStock(
+          tx,
+          current.items,
+          StockMovementType.ORDER_CANCELLED,
+          id,
+          options.actorId,
+        );
         await this.couponsService.release(tx, current);
+      }
+      // Returned goods go back on the shelf (default) or are written off as
+      // unsellable — recorded either way, and only ever once per order.
+      if (to === OrderStatus.RETURNED && current.stockRestoredAt === null) {
+        await this.returnStock(
+          tx,
+          current.items,
+          options.restock === false
+            ? StockMovementType.RETURN_WRITTEN_OFF
+            : StockMovementType.RETURN_RESTOCKED,
+          id,
+          options.actorId,
+        );
+        await tx.order.update({
+          where: { id },
+          data: { stockRestoredAt: new Date() },
+          select: { id: true },
+        });
       }
 
       // Cash on delivery is collected by the courier: delivered ⇒ paid.
@@ -594,77 +640,58 @@ export class OrdersService {
     return priced;
   }
 
-  /**
-   * The real atomicity guarantee: each conditional UPDATE re-checks stock
-   * against the row's current value under Postgres row locks, closing the
-   * race between the read above and this write.
-   */
-  private async takeStock(tx: Prisma.TransactionClient, lines: PricedLine[]): Promise<void> {
-    const soldOut = () =>
-      new ConflictException(
-        'An item in your cart was just bought by someone else. Review your cart and try again.',
+  /** Takes each line's units through the ledger ("Sold", linked to the order). */
+  private async takeStock(
+    tx: Prisma.TransactionClient,
+    lines: PricedLine[],
+    orderId: number,
+    actorId: number,
+  ): Promise<void> {
+    try {
+      await this.ledger.apply(
+        tx,
+        lines.map((line) => ({
+          productId: line.productId,
+          variantId: line.variantId,
+          delta: -line.quantity,
+          type: StockMovementType.SALE,
+          orderId,
+          actorId,
+        })),
       );
-
-    for (const line of lines) {
-      const result =
-        line.variantId === null
-          ? await tx.product.updateMany({
-              where: { id: line.productId, stockQuantity: { gte: line.quantity } },
-              data: { stockQuantity: { decrement: line.quantity } },
-            })
-          : await tx.productVariant.updateMany({
-              where: { id: line.variantId, stockQuantity: { gte: line.quantity } },
-              data: { stockQuantity: { decrement: line.quantity } },
-            });
-      if (result.count === 0) throw soldOut();
+    } catch (error: unknown) {
+      if (error instanceof InsufficientStockError) {
+        throw new ConflictException(
+          'An item in your cart was just bought by someone else. Review your cart and try again.',
+        );
+      }
+      throw error;
     }
-
-    await this.syncVariantProductStock(tx, lines);
   }
 
+  /** Puts an order's units back (or, for a write-off, records them without restocking). */
   private async returnStock(
     tx: Prisma.TransactionClient,
     lines: ReadonlyArray<{ productId: number; variantId: number | null; quantity: number }>,
+    type: StockMovementType,
+    orderId: number,
+    actorId?: number | null,
   ): Promise<void> {
-    for (const line of lines) {
-      // updateMany: a variant deleted since the order simply has nothing to refill.
-      if (line.variantId === null) {
-        await tx.product.updateMany({
-          where: { id: line.productId },
-          data: { stockQuantity: { increment: line.quantity } },
-        });
-      } else {
-        await tx.productVariant.updateMany({
-          where: { id: line.variantId },
-          data: { stockQuantity: { increment: line.quantity } },
-        });
-      }
-    }
-    await this.syncVariantProductStock(tx, lines);
-  }
-
-  /** Variant products' own stock is the sum of their variants' — recompute it. */
-  private async syncVariantProductStock(
-    tx: Prisma.TransactionClient,
-    lines: ReadonlyArray<{ productId: number; variantId: number | null }>,
-  ): Promise<void> {
-    const productIds = [
-      ...new Set(lines.filter((line) => line.variantId !== null).map((line) => line.productId)),
-    ];
-    if (productIds.length === 0) return;
-
-    const sums = await tx.productVariant.groupBy({
-      by: ['productId'],
-      where: { productId: { in: productIds } },
-      _sum: { stockQuantity: true },
-    });
-    for (const sum of sums) {
-      await tx.product.update({
-        where: { id: sum.productId },
-        data: { stockQuantity: sum._sum.stockQuantity ?? 0 },
-        select: { id: true },
-      });
-    }
+    await this.ledger.apply(
+      tx,
+      lines.map((line) => ({
+        productId: line.productId,
+        variantId: line.variantId,
+        delta: type === StockMovementType.RETURN_WRITTEN_OFF ? 0 : line.quantity,
+        type,
+        orderId,
+        actorId: actorId ?? null,
+        note:
+          type === StockMovementType.RETURN_WRITTEN_OFF
+            ? `${line.quantity} unit(s) not resellable`
+            : null,
+      })),
+    );
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

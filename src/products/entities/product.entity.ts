@@ -31,6 +31,7 @@ interface ProductEntityInput {
   discountPrice: Prisma.Decimal | null;
   sku: string;
   stockQuantity: number;
+  lowStockThreshold: number | null;
   isPublished: boolean;
   metaTitle: string | null;
   metaDesc: string | null;
@@ -80,6 +81,13 @@ export class ProductEntity {
   @ApiProperty({ example: 42 })
   stockQuantity: number;
 
+  @ApiProperty({
+    nullable: true,
+    example: 10,
+    description: 'Own low-stock threshold; null = store default',
+  })
+  lowStockThreshold: number | null;
+
   @ApiProperty({ example: true })
   isPublished: boolean;
 
@@ -116,6 +124,7 @@ export class ProductEntity {
     this.discountPrice = partial.discountPrice;
     this.sku = partial.sku;
     this.stockQuantity = partial.stockQuantity;
+    this.lowStockThreshold = partial.lowStockThreshold;
     this.isPublished = partial.isPublished;
     this.metaTitle = partial.metaTitle;
     this.metaDesc = partial.metaDesc;

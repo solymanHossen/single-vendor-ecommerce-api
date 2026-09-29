@@ -10,6 +10,7 @@ import { ORDER_TRANSITIONS } from './orders.constants';
 import { SettingsService } from '../settings/settings.service';
 import { ALL_PERMISSIONS } from '../access/permissions';
 import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+import { InsufficientStockError, StockLedgerService } from '../inventory/stock-ledger.service';
 
 /** No live campaigns: regular prices only. */
 const noCampaigns = {
@@ -30,8 +31,8 @@ const shippingRules = {
 const D = (value: number) => new Prisma.Decimal(value);
 
 const mockTx = {
-  product: { findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-  productVariant: { findMany: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn() },
+  product: { findMany: jest.fn() },
+  productVariant: { findMany: jest.fn() },
   order: {
     create: jest.fn(),
     updateMany: jest.fn(),
@@ -39,8 +40,10 @@ const mockTx = {
     findUniqueOrThrow: jest.fn(),
   },
   payment: { update: jest.fn() },
-  $executeRaw: jest.fn(),
 };
+
+/** Every stock change goes through the ledger. */
+const mockLedger = { apply: jest.fn(), set: jest.fn() };
 
 const mockPrisma = {
   address: { findFirst: jest.fn() },
@@ -170,6 +173,7 @@ describe('OrdersService', () => {
         { provide: CartsService, useValue: mockCartsService },
         { provide: CouponsService, useValue: mockCouponsService },
         { provide: SettingsService, useValue: mockSettingsService },
+        { provide: StockLedgerService, useValue: mockLedger },
       ],
     }).compile();
 
@@ -178,12 +182,7 @@ describe('OrdersService', () => {
     mockPrisma.$transaction.mockImplementation((run: (tx: typeof mockTx) => unknown) =>
       run(mockTx),
     );
-    mockTx.productVariant.updateMany.mockResolvedValue({ count: 1 });
-    mockTx.product.updateMany.mockResolvedValue({ count: 1 });
-    mockTx.productVariant.groupBy.mockResolvedValue([
-      { productId: 101, _sum: { stockQuantity: 18 } },
-    ]);
-    mockTx.$executeRaw.mockResolvedValue(1);
+    mockLedger.apply.mockResolvedValue(undefined);
     mockTx.order.create.mockResolvedValue(orderRow);
     mockSettingsService.getSettings.mockResolvedValue(shippingRules);
   });
@@ -299,22 +298,21 @@ describe('OrdersService', () => {
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it('decrements variant stock, re-syncs the product, records COD payment and clears the cart', async () => {
+    it('takes the stock through the ledger as a sale, records COD payment and clears the cart', async () => {
       mockPrisma.address.findFirst.mockResolvedValueOnce(address);
       mockCartsService.getCart.mockResolvedValueOnce(cart());
       stockRows();
 
       const order = await service.placeOrder(7, { ...dto, note: 'Call first' });
 
-      expect(mockTx.productVariant.updateMany).toHaveBeenCalledWith({
-        where: { id: 204, stockQuantity: { gte: 2 } },
-        data: { stockQuantity: { decrement: 2 } },
-      });
-      expect(mockTx.product.update).toHaveBeenCalledWith({
-        where: { id: 101 },
-        data: { stockQuantity: 18 },
-        select: { id: true },
-      });
+      // Same transaction, linked to the order that was just created.
+      expect(mockLedger.apply).toHaveBeenCalledTimes(1);
+      expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+        { productId: 101, variantId: 204, delta: -2, type: 'SALE', orderId: 301, actorId: 7 },
+      ]);
+      expect(mockTx.order.create.mock.invocationCallOrder[0]).toBeLessThan(
+        mockLedger.apply.mock.invocationCallOrder[0] ?? 0,
+      );
       const created = mockTx.order.create.mock.calls[0][0] as {
         data: Record<string, unknown> & { payment: unknown; items: { create: unknown[] } };
       };
@@ -401,23 +399,61 @@ describe('OrdersService', () => {
       expect(created.data.totalAmount).toEqual(D(2400));
     });
 
+    it('sorts the ledger moves by product then variant so concurrent checkouts lock in the same order', async () => {
+      mockPrisma.address.findFirst.mockResolvedValueOnce(address);
+      mockCartsService.getCart.mockResolvedValueOnce(
+        cart([
+          cartItem({ key: '101:204', productId: 101, variantId: 204, quantity: 1 }),
+          cartItem({ key: '101:203', productId: 101, variantId: 203, quantity: 1 }),
+        ]),
+      );
+      stockRows();
+      mockTx.productVariant.findMany.mockResolvedValue([
+        { id: 203, productId: 101, price: D(1200), stockQuantity: 5 },
+        { id: 204, productId: 101, price: D(1200), stockQuantity: 5 },
+      ]);
+
+      await service.placeOrder(7, dto);
+
+      const moves = mockLedger.apply.mock.calls[0]?.[1] as Array<{ variantId: number }>;
+      expect(moves.map((move) => move.variantId)).toEqual([203, 204]);
+    });
+
     it('409s with every problem when fresh stock is short', async () => {
       mockPrisma.address.findFirst.mockResolvedValueOnce(address);
       mockCartsService.getCart.mockResolvedValueOnce(cart());
       stockRows(1);
 
       await expect(service.placeOrder(7, dto)).rejects.toBeInstanceOf(ConflictException);
-      expect(mockTx.productVariant.updateMany).not.toHaveBeenCalled();
+      expect(mockTx.order.create).not.toHaveBeenCalled();
+      expect(mockLedger.apply).not.toHaveBeenCalled();
     });
 
-    it('409s when the atomic decrement loses a stock race', async () => {
+    it('409s (and rolls the order back) when the ledger loses a stock race', async () => {
       mockPrisma.address.findFirst.mockResolvedValueOnce(address);
       mockCartsService.getCart.mockResolvedValueOnce(cart());
       stockRows();
-      mockTx.productVariant.updateMany.mockResolvedValueOnce({ count: 0 });
+      mockLedger.apply.mockRejectedValueOnce(
+        new InsufficientStockError({ productId: 101, variantId: 204 }),
+      );
 
-      await expect(service.placeOrder(7, dto)).rejects.toBeInstanceOf(ConflictException);
-      expect(mockTx.order.create).not.toHaveBeenCalled();
+      await expect(service.placeOrder(7, dto)).rejects.toThrow(
+        new ConflictException(
+          'An item in your cart was just bought by someone else. Review your cart and try again.',
+        ),
+      );
+      // The throw escapes the transaction callback, so the created order is rolled back.
+      expect(mockCartsService.clearCart).not.toHaveBeenCalled();
+    });
+
+    it('does not disguise unexpected ledger failures as a stock race', async () => {
+      mockPrisma.address.findFirst.mockResolvedValueOnce(address);
+      mockCartsService.getCart.mockResolvedValueOnce(cart());
+      stockRows();
+      const failure = new Error('connection reset');
+      mockLedger.apply.mockRejectedValueOnce(failure);
+
+      await expect(service.placeOrder(7, dto)).rejects.toBe(failure);
     });
 
     it('still returns the order when clearing the cart fails', async () => {
@@ -607,6 +643,7 @@ describe('OrdersService', () => {
         .mockResolvedValueOnce({
           couponId: 4,
           couponCode: 'FLASH20',
+          stockRestoredAt: null,
           paymentStatus: 'UNPAID',
           payment: { provider: 'COD' },
           items: [{ productId: 101, variantId: 204, quantity: 2 }],
@@ -619,11 +656,17 @@ describe('OrdersService', () => {
         where: { id: 301, status: 'PENDING' },
         data: { status: 'CANCELLED' },
       });
-      expect(mockTx.productVariant.updateMany).toHaveBeenCalledWith({
-        where: { id: 204 },
-        data: { stockQuantity: { increment: 2 } },
-      });
-      expect(mockTx.product.update).toHaveBeenCalled(); // product re-synced to its variants
+      expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+        {
+          productId: 101,
+          variantId: 204,
+          delta: 2,
+          type: 'ORDER_CANCELLED',
+          orderId: 301,
+          actorId: 7,
+          note: null,
+        },
+      ]);
       expect(mockCouponsService.release).toHaveBeenCalledWith(
         mockTx,
         expect.objectContaining({ couponId: 4, couponCode: 'FLASH20' }),
@@ -637,7 +680,7 @@ describe('OrdersService', () => {
       mockTx.order.updateMany.mockResolvedValueOnce({ count: 0 });
 
       await expect(service.cancel(customer, 301)).rejects.toBeInstanceOf(ConflictException);
-      expect(mockTx.productVariant.updateMany).not.toHaveBeenCalled();
+      expect(mockLedger.apply).not.toHaveBeenCalled();
     });
   });
 
@@ -664,6 +707,7 @@ describe('OrdersService', () => {
       mockTx.order.findUniqueOrThrow
         .mockResolvedValueOnce({
           couponCode: null,
+          stockRestoredAt: null,
           paymentStatus: 'UNPAID',
           payment: { provider: 'COD' },
           items: [{ productId: 101, variantId: null, quantity: 1 }],
@@ -682,7 +726,7 @@ describe('OrdersService', () => {
         data: { status: 'PAID' },
         select: { id: true },
       });
-      expect(mockTx.product.updateMany).not.toHaveBeenCalled();
+      expect(mockLedger.apply).not.toHaveBeenCalled();
     });
 
     it('refunds a paid order that is cancelled during processing', async () => {
@@ -691,21 +735,126 @@ describe('OrdersService', () => {
       mockTx.order.findUniqueOrThrow
         .mockResolvedValueOnce({
           couponCode: null,
+          stockRestoredAt: null,
           paymentStatus: 'PAID',
           payment: { provider: 'BKASH' },
           items: [{ productId: 101, variantId: null, quantity: 1 }],
         })
         .mockResolvedValueOnce({ ...orderRow, status: 'CANCELLED' });
 
-      await service.updateStatus(301, { status: 'CANCELLED' });
+      await service.updateStatus(301, { status: 'CANCELLED' }, admin);
 
-      expect(mockTx.product.updateMany).toHaveBeenCalledWith({
-        where: { id: 101 },
-        data: { stockQuantity: { increment: 1 } },
-      });
+      expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+        {
+          productId: 101,
+          variantId: null,
+          delta: 1,
+          type: 'ORDER_CANCELLED',
+          orderId: 301,
+          actorId: 1,
+          note: null,
+        },
+      ]);
       expect(mockTx.order.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { paymentStatus: 'REFUNDED' } }),
       );
+    });
+
+    describe('to RETURNED', () => {
+      const returnedLines = [
+        { productId: 101, variantId: 204, quantity: 2 },
+        { productId: 102, variantId: null, quantity: 1 },
+      ];
+
+      function arrangeDelivered(stockRestoredAt: Date | null): void {
+        mockPrisma.order.findUniqueOrThrow.mockResolvedValueOnce({ status: 'DELIVERED' });
+        mockTx.order.updateMany.mockResolvedValueOnce({ count: 1 });
+        mockTx.order.findUniqueOrThrow
+          .mockResolvedValueOnce({
+            couponId: null,
+            couponCode: null,
+            stockRestoredAt,
+            paymentStatus: 'PAID',
+            payment: { provider: 'COD' },
+            items: returnedLines,
+          })
+          .mockResolvedValueOnce({ ...orderRow, status: 'RETURNED' });
+      }
+
+      it('puts the items back on the shelf by default and stamps stockRestoredAt', async () => {
+        arrangeDelivered(null);
+
+        await service.updateStatus(301, { status: 'RETURNED' }, admin);
+
+        expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+          {
+            productId: 101,
+            variantId: 204,
+            delta: 2,
+            type: 'RETURN_RESTOCKED',
+            orderId: 301,
+            actorId: 1,
+            note: null,
+          },
+          {
+            productId: 102,
+            variantId: null,
+            delta: 1,
+            type: 'RETURN_RESTOCKED',
+            orderId: 301,
+            actorId: 1,
+            note: null,
+          },
+        ]);
+        expect(mockTx.order.update).toHaveBeenCalledWith({
+          where: { id: 301 },
+          data: { stockRestoredAt: expect.any(Date) },
+          select: { id: true },
+        });
+        // Returning is not cancelling: the coupon stays spent.
+        expect(mockCouponsService.release).not.toHaveBeenCalled();
+      });
+
+      it('writes the items off without restocking when restock is false', async () => {
+        arrangeDelivered(null);
+
+        await service.updateStatus(301, { status: 'RETURNED', restock: false });
+
+        expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+          {
+            productId: 101,
+            variantId: 204,
+            delta: 0,
+            type: 'RETURN_WRITTEN_OFF',
+            orderId: 301,
+            actorId: null,
+            note: '2 unit(s) not resellable',
+          },
+          {
+            productId: 102,
+            variantId: null,
+            delta: 0,
+            type: 'RETURN_WRITTEN_OFF',
+            orderId: 301,
+            actorId: null,
+            note: '1 unit(s) not resellable',
+          },
+        ]);
+        expect(mockTx.order.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { stockRestoredAt: expect.any(Date) } }),
+        );
+      });
+
+      it('restocks only once: an order already restored (e.g. via its return) is left alone', async () => {
+        arrangeDelivered(new Date('2026-01-05T00:00:00.000Z'));
+
+        await service.updateStatus(301, { status: 'RETURNED' }, admin);
+
+        expect(mockLedger.apply).not.toHaveBeenCalled();
+        expect(mockTx.order.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: { stockRestoredAt: expect.any(Date) } }),
+        );
+      });
     });
   });
 

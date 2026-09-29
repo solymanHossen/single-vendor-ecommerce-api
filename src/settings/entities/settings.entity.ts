@@ -61,6 +61,9 @@ export class SettingsEntity implements AppSettings {
   @ApiProperty({ example: 10000, description: 'Subtotal (BDT) from which delivery is free' })
   freeShippingThreshold: number;
 
+  @ApiProperty({ example: 5, description: 'Units at or below which an item counts as low stock' })
+  lowStockThreshold: number;
+
   @ApiProperty({ example: true })
   announcementEnabled: boolean;
 
@@ -98,6 +101,7 @@ export class SettingsEntity implements AppSettings {
     this.shippingFeeInsideDhaka = partial.shippingFeeInsideDhaka;
     this.shippingFeeOutsideDhaka = partial.shippingFeeOutsideDhaka;
     this.freeShippingThreshold = partial.freeShippingThreshold;
+    this.lowStockThreshold = partial.lowStockThreshold;
     this.announcementEnabled = partial.announcementEnabled;
     this.announcementMessage = partial.announcementMessage;
     this.announcementPromotion = partial.announcementPromotion;

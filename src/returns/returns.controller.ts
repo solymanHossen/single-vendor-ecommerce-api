@@ -120,10 +120,11 @@ export class ReturnsController {
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Return request does not exist' })
   async updateStatus(
+    @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(UpdateReturnStatusSchema)) dto: UpdateReturnStatusDto,
   ): Promise<{ message: string; data: ReturnRequestEntity }> {
-    const returnRequest = await this.returnsService.updateStatus(id, dto);
+    const returnRequest = await this.returnsService.updateStatus(id, dto, actor.id);
     return { message: 'Return request status updated successfully', data: returnRequest };
   }
 }

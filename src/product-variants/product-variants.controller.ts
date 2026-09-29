@@ -20,6 +20,8 @@ import {
 } from '@nestjs/swagger';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { ProductVariantsService } from './product-variants.service';
 import {
@@ -68,10 +70,11 @@ export class ProductVariantsController {
     description: 'productId or an attributeOptionId references a record that does not exist',
   })
   async create(
+    @CurrentUser() actor: AuthUser,
     @Param('productId', ParseIntPipe) productId: number,
     @Body(new ZodValidationPipe(CreateProductVariantSchema)) dto: CreateProductVariantDto,
   ): Promise<{ message: string; data: ProductVariantEntity }> {
-    const variant = await this.productVariantsService.create(productId, dto);
+    const variant = await this.productVariantsService.create(productId, dto, actor.id);
     return { message: 'Product variant created successfully', data: variant };
   }
 
@@ -103,10 +106,11 @@ export class ProductVariantsController {
     description: 'An attributeOptionId references a record that does not exist',
   })
   async update(
+    @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(UpdateProductVariantSchema)) dto: UpdateProductVariantDto,
   ): Promise<{ message: string; data: ProductVariantEntity }> {
-    const variant = await this.productVariantsService.update(id, dto);
+    const variant = await this.productVariantsService.update(id, dto, actor.id);
     return { message: 'Product variant updated successfully', data: variant };
   }
 

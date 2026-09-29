@@ -21,6 +21,8 @@ import { OrdersModule } from './orders/orders.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { CampaignPricingModule } from './campaigns/campaign-pricing.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { StockLedgerModule } from './inventory/stock-ledger.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ReturnsModule } from './returns/returns.module';
@@ -117,6 +119,8 @@ import {
     CouponsModule,
     CampaignPricingModule,
     CampaignsModule,
+    StockLedgerModule,
+    InventoryModule,
     PaymentsModule,
     ReviewsModule,
     ReturnsModule,

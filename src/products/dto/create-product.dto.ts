@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_STOCK } from '../../inventory/inventory.constants';
 import { SlugSchema } from '../../common/validators/slug.schema';
 
 const MAX_DECIMAL_AMOUNT = 999_999_999.99;
@@ -19,7 +20,9 @@ export const CreateProductSchema = z
     basePrice: z.number().positive().max(MAX_DECIMAL_AMOUNT),
     discountPrice: z.number().positive().max(MAX_DECIMAL_AMOUNT).optional(),
     sku: z.string().trim().min(1, 'sku is required').max(100),
-    stockQuantity: z.number().int().min(0).default(0),
+    stockQuantity: z.number().int().min(0).max(MAX_STOCK).default(0),
+    /** Overrides the store's low-stock threshold. */
+    lowStockThreshold: z.number().int().min(0).max(10_000).optional(),
     isPublished: z.boolean().default(false),
     metaTitle: z.string().trim().max(160).optional(),
     metaDesc: z.string().trim().max(300).optional(),

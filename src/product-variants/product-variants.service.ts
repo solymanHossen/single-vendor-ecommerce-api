@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { StockMovementType, type Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { StockLedgerService } from '../inventory/stock-ledger.service';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 import {
@@ -33,7 +34,10 @@ type ProductVariantRow = Prisma.ProductVariantGetPayload<{
 
 @Injectable()
 export class ProductVariantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: StockLedgerService,
+  ) {}
 
   async findAllByProduct(productId: number): Promise<ProductVariantEntity[]> {
     // Confirms the parent product exists before listing — a bare `findMany`
@@ -59,8 +63,12 @@ export class ProductVariantsService {
     return this.toEntity(variant);
   }
 
-  async create(productId: number, dto: CreateProductVariantDto): Promise<ProductVariantEntity> {
-    const { attributeOptionIds, ...scalarData } = dto;
+  async create(
+    productId: number,
+    dto: CreateProductVariantDto,
+    actorId?: number,
+  ): Promise<ProductVariantEntity> {
+    const { attributeOptionIds, stockQuantity, ...scalarData } = dto;
 
     // productId and each attributeOptionId are plain scalar/nested-create
     // assignments, so a reference to a product or attribute option that
@@ -75,17 +83,37 @@ export class ProductVariantsService {
             create: attributeOptionIds.map((attributeOptionId) => ({ attributeOptionId })),
           },
         },
+        select: { id: true },
+      });
+      // Created at 0, then stocked through the ledger so the opening count is on record.
+      if (stockQuantity > 0) {
+        await this.ledger.apply(tx, [
+          {
+            productId,
+            variantId: created.id,
+            delta: stockQuantity,
+            type: StockMovementType.INITIAL,
+            actorId,
+          },
+        ]);
+      } else {
+        await this.syncProductStock(tx, productId);
+      }
+      return tx.productVariant.findUniqueOrThrow({
+        where: { id: created.id },
         select: PRODUCT_VARIANT_SELECT,
       });
-      await this.syncProductStock(tx, productId);
-      return created;
     });
 
     return this.toEntity(variant);
   }
 
-  async update(id: number, dto: UpdateProductVariantDto): Promise<ProductVariantEntity> {
-    const { attributeOptionIds, ...scalarData } = dto;
+  async update(
+    id: number,
+    dto: UpdateProductVariantDto,
+    actorId?: number,
+  ): Promise<ProductVariantEntity> {
+    const { attributeOptionIds, stockQuantity, ...scalarData } = dto;
 
     // Safe to fully replace the option set (deleteMany + create) here, unlike
     // AttributeOption: nothing else references a VariantOption row, so
@@ -103,12 +131,17 @@ export class ProductVariantsService {
                 },
               }
             : scalarData,
-        select: PRODUCT_VARIANT_SELECT,
+        select: { id: true, productId: true },
       });
-      if (scalarData.stockQuantity !== undefined) {
-        await this.syncProductStock(tx, updated.productId);
+      // A typed count is a recount — row-locked and on record.
+      if (stockQuantity !== undefined) {
+        await this.ledger.set(tx, { productId: updated.productId, variantId: id }, stockQuantity, {
+          type: StockMovementType.RECOUNT,
+          actorId,
+          note: 'Set on the product page',
+        });
       }
-      return updated;
+      return tx.productVariant.findUniqueOrThrow({ where: { id }, select: PRODUCT_VARIANT_SELECT });
     });
 
     return this.toEntity(variant);

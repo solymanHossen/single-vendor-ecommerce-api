@@ -3,6 +3,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { Role } from '@prisma/client';
 import { ReturnsService } from './returns.service';
 import { PrismaService } from '../database/prisma.service';
+import { StockLedgerService } from '../inventory/stock-ledger.service';
 import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ALL_PERMISSIONS } from '../access/permissions';
 
@@ -10,6 +11,13 @@ const mockTx = {
   returnRequest: { update: jest.fn() },
   order: { update: jest.fn() },
 };
+
+const mockLedger = { apply: jest.fn(), set: jest.fn() };
+
+const orderItems = [
+  { productId: 5, variantId: null, quantity: 2 },
+  { productId: 6, variantId: 61, quantity: 1 },
+];
 
 const mockPrisma = {
   order: { findFirst: jest.fn() },
@@ -54,7 +62,11 @@ describe('ReturnsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ReturnsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        ReturnsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: StockLedgerService, useValue: mockLedger },
+      ],
     }).compile();
 
     service = module.get<ReturnsService>(ReturnsService);
@@ -153,20 +165,96 @@ describe('ReturnsService', () => {
 
     it('syncs the order to RETURNED/REFUNDED in a transaction when marking REFUNDED', async () => {
       mockTx.returnRequest.update.mockResolvedValueOnce({ ...sampleRow, status: 'REFUNDED' });
+      mockTx.order.update.mockResolvedValueOnce({ stockRestoredAt: null, items: orderItems });
 
-      const result = await service.updateStatus(1, { status: 'REFUNDED', adminNote: 'Refunded.' });
+      const result = await service.updateStatus(
+        1,
+        { status: 'REFUNDED', adminNote: 'Refunded.' },
+        99,
+      );
 
       expect(mockTx.returnRequest.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: { status: 'REFUNDED', adminNote: 'Refunded.' },
         select: expect.any(Object),
       });
-      expect(mockTx.order.update).toHaveBeenCalledWith({
+      expect(mockTx.order.update).toHaveBeenNthCalledWith(1, {
         where: { id: 301 },
         data: { status: 'RETURNED', paymentStatus: 'REFUNDED' },
-        select: { id: true },
+        select: expect.objectContaining({ stockRestoredAt: true }),
       });
       expect(result.status).toBe('REFUNDED');
+    });
+
+    it('puts the items back in stock by default and marks the order restored', async () => {
+      mockTx.returnRequest.update.mockResolvedValueOnce({ ...sampleRow, status: 'REFUNDED' });
+      mockTx.order.update.mockResolvedValueOnce({ stockRestoredAt: null, items: orderItems });
+
+      await service.updateStatus(1, { status: 'REFUNDED' }, 99);
+
+      expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+        {
+          productId: 5,
+          variantId: null,
+          delta: 2,
+          type: 'RETURN_RESTOCKED',
+          orderId: 301,
+          actorId: 99,
+          note: 'Return #1',
+        },
+        {
+          productId: 6,
+          variantId: 61,
+          delta: 1,
+          type: 'RETURN_RESTOCKED',
+          orderId: 301,
+          actorId: 99,
+          note: 'Return #1',
+        },
+      ]);
+      expect(mockTx.order.update).toHaveBeenLastCalledWith({
+        where: { id: 301 },
+        data: { stockRestoredAt: expect.any(Date) },
+        select: { id: true },
+      });
+    });
+
+    it('writes the items off (delta 0) when restock is false', async () => {
+      mockTx.returnRequest.update.mockResolvedValueOnce({ ...sampleRow, status: 'REFUNDED' });
+      mockTx.order.update.mockResolvedValueOnce({ stockRestoredAt: null, items: orderItems });
+
+      await service.updateStatus(1, { status: 'REFUNDED', restock: false });
+
+      expect(mockLedger.apply).toHaveBeenCalledWith(mockTx, [
+        expect.objectContaining({
+          productId: 5,
+          delta: 0,
+          type: 'RETURN_WRITTEN_OFF',
+          actorId: null,
+          note: '2 unit(s) not resellable',
+        }),
+        expect.objectContaining({
+          productId: 6,
+          variantId: 61,
+          delta: 0,
+          type: 'RETURN_WRITTEN_OFF',
+          note: '1 unit(s) not resellable',
+        }),
+      ]);
+      expect(mockTx.order.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('never restocks twice when the order was already restored', async () => {
+      mockTx.returnRequest.update.mockResolvedValueOnce({ ...sampleRow, status: 'REFUNDED' });
+      mockTx.order.update.mockResolvedValueOnce({
+        stockRestoredAt: new Date('2026-01-02T00:00:00.000Z'),
+        items: orderItems,
+      });
+
+      await service.updateStatus(1, { status: 'REFUNDED' }, 99);
+
+      expect(mockLedger.apply).not.toHaveBeenCalled();
+      expect(mockTx.order.update).toHaveBeenCalledTimes(1);
     });
   });
 });

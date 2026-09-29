@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_STOCK } from '../../inventory/inventory.constants';
 import { SlugSchema } from '../../common/validators/slug.schema';
 import { ProductImageInputSchema } from './create-product.dto';
 
@@ -14,7 +15,9 @@ export const UpdateProductSchema = z
     // `null` clears an existing discount; `undefined`/omitted leaves it untouched.
     discountPrice: z.number().positive().max(MAX_DECIMAL_AMOUNT).nullable().optional(),
     sku: z.string().trim().min(1, 'sku is required').max(100).optional(),
-    stockQuantity: z.number().int().min(0).optional(),
+    stockQuantity: z.number().int().min(0).max(MAX_STOCK).optional(),
+    /** null → back to the store default. */
+    lowStockThreshold: z.number().int().min(0).max(10_000).nullable().optional(),
     isPublished: z.boolean().optional(),
     metaTitle: z.string().trim().max(160).nullable().optional(),
     metaDesc: z.string().trim().max(300).nullable().optional(),

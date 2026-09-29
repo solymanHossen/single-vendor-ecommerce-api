@@ -54,6 +54,9 @@ export class CatalogProductCardEntity {
   @ApiProperty({ example: 42 })
   stockQuantity: number;
 
+  @ApiProperty({ example: 5, description: 'At or below this many units, show "only N left"' })
+  lowStockThreshold: number;
+
   @ApiProperty({ example: 'Smartphones' })
   categoryName: string;
 
@@ -88,6 +91,7 @@ export class CatalogProductCardEntity {
     this.basePrice = partial.basePrice;
     this.discountPrice = partial.discountPrice;
     this.stockQuantity = partial.stockQuantity;
+    this.lowStockThreshold = partial.lowStockThreshold;
     this.categoryName = partial.categoryName;
     this.categorySlug = partial.categorySlug;
     this.ratingAverage = partial.ratingAverage;
@@ -351,6 +355,9 @@ export class ProductDetailEntity {
   @ApiProperty({ example: 124 })
   stockQuantity: number;
 
+  @ApiProperty({ example: 5, description: 'At or below this many units, show "only N left"' })
+  lowStockThreshold: number;
+
   @ApiProperty({ nullable: true })
   metaTitle: string | null;
 
@@ -393,6 +400,7 @@ export class ProductDetailEntity {
     this.discountPrice = partial.discountPrice;
     this.sku = partial.sku;
     this.stockQuantity = partial.stockQuantity;
+    this.lowStockThreshold = partial.lowStockThreshold;
     this.metaTitle = partial.metaTitle;
     this.metaDesc = partial.metaDesc;
     this.category = partial.category;

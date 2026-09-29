@@ -22,6 +22,8 @@ import {
 } from '@nestjs/swagger';
 import { z } from 'zod';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { ProductsService } from './products.service';
 import { CreateProductSchema, type CreateProductDto } from './dto/create-product.dto';
@@ -95,9 +97,10 @@ export class ProductsController {
     description: 'categoryId references a category that does not exist',
   })
   async create(
+    @CurrentUser() actor: AuthUser,
     @Body(new ZodValidationPipe(CreateProductSchema)) dto: CreateProductDto,
   ): Promise<{ message: string; data: ProductEntity }> {
-    const product = await this.productsService.create(dto);
+    const product = await this.productsService.create(dto, actor.id);
     return { message: 'Product created successfully', data: product };
   }
 
@@ -116,10 +119,11 @@ export class ProductsController {
     description: 'stockQuantity sent for a product whose stock is managed per variant',
   })
   async update(
+    @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(UpdateProductSchema)) dto: UpdateProductDto,
   ): Promise<{ message: string; data: ProductEntity }> {
-    const product = await this.productsService.update(id, dto);
+    const product = await this.productsService.update(id, dto, actor.id);
     return { message: 'Product updated successfully', data: product };
   }
 

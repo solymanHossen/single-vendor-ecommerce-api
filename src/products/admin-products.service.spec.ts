@@ -1,11 +1,23 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { AdminProductsService } from './admin-products.service';
 import { PrismaService } from '../database/prisma.service';
-import { LOW_STOCK_THRESHOLD } from './products.constants';
+import { SettingsService } from '../settings/settings.service';
+import { stockLevelWhere } from '../inventory/stock-levels';
 import type { AdminProductQueryDto } from './dto/admin-product-query.dto';
+
+const STORE_THRESHOLD = 5;
+
+// Stand-in for the `products.low_stock_threshold` column reference.
+const thresholdField = { modelName: 'Product', name: 'lowStockThreshold' };
+
+// Plain functions so clearAllMocks/resetAllMocks can't wipe them.
+const settingsStub = {
+  getSettings: () => Promise.resolve({ lowStockThreshold: STORE_THRESHOLD }),
+};
 
 const mockPrisma = {
   product: {
+    fields: { lowStockThreshold: thresholdField },
     findMany: jest.fn(),
     count: jest.fn(),
     updateMany: jest.fn(),
@@ -46,7 +58,11 @@ describe('AdminProductsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AdminProductsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        AdminProductsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: SettingsService, useValue: settingsStub },
+      ],
     }).compile();
 
     service = module.get<AdminProductsService>(AdminProductsService);
@@ -55,6 +71,14 @@ describe('AdminProductsService', () => {
     mockPrisma.product.count.mockImplementation((args: { where: unknown }) => args);
     mockPrisma.$transaction.mockResolvedValue([[row], 41, 82, 80, 3, 2]);
   });
+
+  function lowWhere(): Record<string, unknown> {
+    return stockLevelWhere(
+      'low',
+      STORE_THRESHOLD,
+      thresholdField as unknown as Parameters<typeof stockLevelWhere>[2],
+    );
+  }
 
   function queries(): { page: FindManyArgs; counts: Array<{ where: Record<string, unknown> }> } {
     const batch = mockPrisma.$transaction.mock.calls[0][0] as unknown[];
@@ -85,7 +109,7 @@ describe('AdminProductsService', () => {
         draft: 2,
         lowStock: 3,
         outOfStock: 2,
-        lowStockThreshold: LOW_STOCK_THRESHOLD,
+        lowStockThreshold: STORE_THRESHOLD,
       });
     });
 
@@ -104,12 +128,21 @@ describe('AdminProductsService', () => {
       expect(page.where).toEqual({
         categoryId: 4,
         isPublished: false,
-        stockQuantity: { gt: 0, lte: LOW_STOCK_THRESHOLD },
+        AND: [
+          { stockQuantity: { gt: 0 } },
+          {
+            OR: [
+              { lowStockThreshold: null, stockQuantity: { lte: STORE_THRESHOLD } },
+              { lowStockThreshold: { not: null }, stockQuantity: { lte: thresholdField } },
+            ],
+          },
+        ],
       });
       // Scope-only count for the "All" tab: category kept, status/stock dropped.
       expect(counts[1]?.where).toEqual({ categoryId: 4 });
       expect(counts[2]?.where).toEqual({ categoryId: 4, isPublished: true });
-      expect(counts[4]?.where).toEqual({ categoryId: 4, stockQuantity: { equals: 0 } });
+      expect(counts[3]?.where).toEqual({ categoryId: 4, ...lowWhere() });
+      expect(counts[4]?.where).toEqual({ categoryId: 4, stockQuantity: 0 });
     });
 
     it('searches name, product SKU and variant SKU case-insensitively', async () => {
@@ -125,7 +158,27 @@ describe('AdminProductsService', () => {
     it('treats "in stock" as above the low-stock threshold', async () => {
       await service.findAll({ ...baseQuery, stock: 'in' });
 
-      expect(queries().page.where['stockQuantity']).toEqual({ gt: LOW_STOCK_THRESHOLD });
+      expect(queries().page.where['AND']).toEqual([
+        { stockQuantity: { gt: 0 } },
+        {
+          NOT: {
+            OR: [
+              { lowStockThreshold: null, stockQuantity: { lte: STORE_THRESHOLD } },
+              { lowStockThreshold: { not: null }, stockQuantity: { lte: thresholdField } },
+            ],
+          },
+        },
+      ]);
+    });
+
+    it("compares against each product's own threshold column when it has one", async () => {
+      await service.findAll({ ...baseQuery, stock: 'low' });
+
+      const and = queries().page.where['AND'] as Array<{ OR?: Array<Record<string, unknown>> }>;
+      expect(and[1]?.OR?.[1]).toEqual({
+        lowStockThreshold: { not: null },
+        stockQuantity: { lte: mockPrisma.product.fields.lowStockThreshold },
+      });
     });
 
     it('orders by the chosen field with an id tie-break and pages correctly', async () => {

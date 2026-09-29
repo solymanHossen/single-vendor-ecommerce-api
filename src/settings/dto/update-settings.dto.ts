@@ -69,6 +69,8 @@ export const UpdateSettingsSchema = z
     shippingFeeInsideDhaka: money(100_000),
     shippingFeeOutsideDhaka: money(100_000),
     freeShippingThreshold: money(10_000_000),
+    // Inventory
+    lowStockThreshold: z.number().int().min(0).max(10_000).optional(),
     // Announcement bar
     announcementEnabled: z.boolean().optional(),
     announcementMessage: z.string().trim().max(200).optional(),

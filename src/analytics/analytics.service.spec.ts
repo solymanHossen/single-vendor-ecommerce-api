@@ -2,6 +2,10 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { AnalyticsService, buildWindow, percentChange } from './analytics.service';
 import { PrismaService } from '../database/prisma.service';
+import { SettingsService } from '../settings/settings.service';
+
+// Plain function so jest.resetAllMocks can't wipe it.
+const settingsStub = { getSettings: () => Promise.resolve({ lowStockThreshold: 5 }) };
 
 const mockPrisma = {
   user: { count: jest.fn() },
@@ -10,7 +14,11 @@ const mockPrisma = {
   review: { groupBy: jest.fn(), count: jest.fn(), findMany: jest.fn() },
   returnRequest: { count: jest.fn() },
   ticket: { count: jest.fn() },
-  product: { findMany: jest.fn() },
+  product: {
+    // Stand-in for the `products.low_stock_threshold` column reference.
+    fields: { lowStockThreshold: { modelName: 'Product', name: 'lowStockThreshold' } },
+    findMany: jest.fn(),
+  },
   productImage: { findMany: jest.fn() },
   $queryRaw: jest.fn(),
 };
@@ -58,7 +66,11 @@ describe('AnalyticsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AnalyticsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        AnalyticsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: SettingsService, useValue: settingsStub },
+      ],
     }).compile();
 
     service = module.get<AnalyticsService>(AnalyticsService);
@@ -168,5 +180,42 @@ describe('AnalyticsService', () => {
       openTickets: 4,
       pendingReviews: 2,
     });
+  });
+
+  it("lists low and out-of-stock published products using the store's threshold", async () => {
+    mockPrisma.product.findMany.mockResolvedValue([
+      {
+        id: 3,
+        name: 'Cable',
+        stockQuantity: 0,
+        images: [{ url: 'https://cdn.example.com/3.jpg' }],
+      },
+    ]);
+
+    const dashboard = await service.getDashboard(7, NOW);
+
+    expect(dashboard.lowStock).toEqual([
+      { id: 3, name: 'Cable', stockQuantity: 0, thumbnailUrl: 'https://cdn.example.com/3.jpg' },
+    ]);
+    const lowStockQuery = mockPrisma.product.findMany.mock.calls.find(
+      ([args]: [{ where?: { isPublished?: boolean } }]) => args.where?.isPublished === true,
+    ) as [{ where: { OR: unknown[] } }] | undefined;
+    expect(lowStockQuery?.[0].where.OR).toEqual([
+      { stockQuantity: 0 },
+      {
+        AND: [
+          { stockQuantity: { gt: 0 } },
+          {
+            OR: [
+              { lowStockThreshold: null, stockQuantity: { lte: 5 } },
+              {
+                lowStockThreshold: { not: null },
+                stockQuantity: { lte: mockPrisma.product.fields.lowStockThreshold },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 });

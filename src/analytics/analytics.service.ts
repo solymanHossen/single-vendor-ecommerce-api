@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { OrderStatus, PaymentStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { LOW_STOCK_THRESHOLD } from '../products/products.constants';
+import { stockLevelWhere } from '../inventory/stock-levels';
+import { SettingsService } from '../settings/settings.service';
 import {
   AnalyticsDashboardEntity,
   AnalyticsSummaryEntity,
@@ -108,7 +109,10 @@ interface TopProductRow {
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+  ) {}
 
   /**
    * Everything the admin overview renders, in one round of parallel queries.
@@ -390,8 +394,16 @@ export class AnalyticsService {
   }
 
   private async loadLowStock(): Promise<LowStockEntity[]> {
+    const { lowStockThreshold } = await this.settings.getSettings();
+    const threshold = this.prisma.product.fields.lowStockThreshold;
     const products = await this.prisma.product.findMany({
-      where: { isPublished: true, stockQuantity: { lte: LOW_STOCK_THRESHOLD } },
+      where: {
+        isPublished: true,
+        OR: [
+          stockLevelWhere('out', lowStockThreshold, threshold),
+          stockLevelWhere('low', lowStockThreshold, threshold),
+        ],
+      },
       select: {
         id: true,
         name: true,

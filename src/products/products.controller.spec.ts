@@ -1,4 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { Role } from '@prisma/client';
+import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { PaginatedProductsEntity, ProductEntity } from './entities/product.entity';
@@ -23,6 +25,7 @@ const sampleProduct = new ProductEntity({
   discountPrice: null,
   sku: 'IPH17PRO',
   stockQuantity: 10,
+  lowStockThreshold: null,
   isPublished: true,
   metaTitle: null,
   metaDesc: null,
@@ -31,6 +34,14 @@ const sampleProduct = new ProductEntity({
   createdAt: new Date(),
   updatedAt: new Date(),
 });
+
+const actor: AuthUser = {
+  id: 9,
+  email: 'staff@shop.test',
+  role: Role.ADMIN,
+  isActive: true,
+  permissions: [],
+};
 
 describe('ProductsController', () => {
   let controller: ProductsController;
@@ -74,7 +85,7 @@ describe('ProductsController', () => {
   });
 
   describe('create()', () => {
-    it('delegates to the service and wraps the result', async () => {
+    it('delegates to the service with the actor id and wraps the result', async () => {
       mockProductsService.create.mockResolvedValueOnce(sampleProduct);
       const dto = {
         categoryId: 2,
@@ -87,20 +98,20 @@ describe('ProductsController', () => {
         isPublished: true,
       };
 
-      const result = await controller.create(dto);
+      const result = await controller.create(actor, dto);
 
-      expect(mockProductsService.create).toHaveBeenCalledWith(dto);
+      expect(mockProductsService.create).toHaveBeenCalledWith(dto, 9);
       expect(result).toEqual({ message: 'Product created successfully', data: sampleProduct });
     });
   });
 
   describe('update()', () => {
-    it('delegates to the service with id and dto', async () => {
+    it('delegates to the service with id, dto and the actor id', async () => {
       mockProductsService.update.mockResolvedValueOnce(sampleProduct);
 
-      const result = await controller.update(1, { name: 'Renamed' });
+      const result = await controller.update(actor, 1, { name: 'Renamed' });
 
-      expect(mockProductsService.update).toHaveBeenCalledWith(1, { name: 'Renamed' });
+      expect(mockProductsService.update).toHaveBeenCalledWith(1, { name: 'Renamed' }, 9);
       expect(result).toEqual({ message: 'Product updated successfully', data: sampleProduct });
     });
   });

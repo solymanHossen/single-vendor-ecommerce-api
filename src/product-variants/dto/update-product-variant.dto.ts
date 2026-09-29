@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_STOCK } from '../../inventory/inventory.constants';
 
 const MAX_DECIMAL_AMOUNT = 999_999_999.99;
 
@@ -6,7 +7,7 @@ export const UpdateProductVariantSchema = z
   .object({
     sku: z.string().trim().min(1, 'sku is required').max(100).optional(),
     price: z.number().positive().max(MAX_DECIMAL_AMOUNT).optional(),
-    stockQuantity: z.number().int().min(0).optional(),
+    stockQuantity: z.number().int().min(0).max(MAX_STOCK).optional(),
     imageUrl: z.string().trim().url().max(1000).nullable().optional(),
     // When provided, this REPLACES the variant's entire attribute-option set.
     attributeOptionIds: z
