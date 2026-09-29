@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PagesModule } from './pages/pages.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule, type ThrottlerModuleOptions } from '@nestjs/throttler';
@@ -126,6 +127,7 @@ import {
     ReturnsModule,
     TicketsModule,
     StorefrontModule,
+    PagesModule,
     AnalyticsModule,
     ScheduleModule.forRoot(),
     AuditModule,
