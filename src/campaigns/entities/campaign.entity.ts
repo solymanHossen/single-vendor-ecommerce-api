@@ -128,7 +128,10 @@ export class CampaignProductEntity {
   @ApiProperty({ nullable: true })
   imageUrl: string | null;
 
-  @ApiProperty({ ...MONEY, description: 'Regular selling price' })
+  @ApiProperty({ ...MONEY, description: 'List price, before any sale' })
+  basePrice: Prisma.Decimal;
+
+  @ApiProperty({ ...MONEY, description: 'Regular selling price (product sale applied)' })
   price: Prisma.Decimal;
 
   @ApiProperty({ ...MONEY, description: 'Price with this campaign' })
@@ -144,6 +147,7 @@ export class CampaignProductEntity {
     this.id = partial.id;
     this.name = partial.name;
     this.imageUrl = partial.imageUrl;
+    this.basePrice = partial.basePrice;
     this.price = partial.price;
     this.campaignPrice = partial.campaignPrice;
     this.stockQuantity = partial.stockQuantity;

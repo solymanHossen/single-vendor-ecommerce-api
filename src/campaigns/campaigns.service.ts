@@ -12,7 +12,8 @@ import { StorefrontCatalogService } from '../storefront/storefront-catalog.servi
 import type { CatalogQueryDto } from '../storefront/dto/catalog-query.dto';
 import type { CatalogPageEntity } from '../storefront/entities/catalog.entity';
 import { CampaignPricingService } from './campaign-pricing.service';
-import { campaignPrice, offerLabel, type CampaignOffer } from './campaign-pricing';
+import { applyCampaign, offerLabel, type CampaignOffer } from './campaign-pricing';
+import { linePrice } from '../carts/cart-pricing';
 import {
   CAMPAIGN_STATUSES,
   FEATURED_PRODUCT_COUNT,
@@ -182,13 +183,15 @@ export class CampaignsService {
     return new CampaignDetailEntity({
       ...this.toEntity(row, stats.get(id), now),
       products: row.products.map(({ product }) => {
-        const price = product.discountPrice ?? product.basePrice;
+        const regular = linePrice(product, null);
         return new CampaignProductEntity({
           id: product.id,
           name: product.name,
           imageUrl: product.images[0]?.url ?? null,
-          price,
-          campaignPrice: campaignPrice(price, offer),
+          basePrice: product.basePrice,
+          price: regular.unitPrice,
+          // What shoppers will pay: the better of the product's own sale and this campaign.
+          campaignPrice: applyCampaign(regular, [offer]).unitPrice,
           stockQuantity: product.stockQuantity,
           isPublished: product.isPublished,
         });

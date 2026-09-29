@@ -45,8 +45,11 @@ export function bestOffer(
 }
 
 /**
- * Layers the best live campaign over a regular line price. The "was" price
- * becomes the regular compare-at (or the regular selling price).
+ * Best price wins — discounts never stack. A campaign's discount is taken
+ * off the *regular* price (the "was" price, before any product sale), and
+ * the shopper pays whichever is lower: that, or the product's own sale
+ * price. So "50% off" means 50% off — a product already 70% off stays at
+ * 70%, and one 15% off becomes 50% off, not 57.5%.
  */
 export function applyCampaign(
   line: { unitPrice: Prisma.Decimal; compareAtPrice: Prisma.Decimal | null },
@@ -56,13 +59,11 @@ export function applyCampaign(
   compareAtPrice: Prisma.Decimal | null;
   offer: CampaignOffer | null;
 } {
-  const best = offers && offers.length > 0 ? bestOffer(line.unitPrice, offers) : null;
-  if (!best) return { ...line, offer: null };
-  return {
-    unitPrice: best.price,
-    compareAtPrice: line.compareAtPrice ?? line.unitPrice,
-    offer: best.offer,
-  };
+  const regular = line.compareAtPrice ?? line.unitPrice;
+  const best = offers && offers.length > 0 ? bestOffer(regular, offers) : null;
+  // The product's own sale is as good or better: keep it, no campaign badge.
+  if (!best || !best.price.lessThan(line.unitPrice)) return { ...line, offer: null };
+  return { unitPrice: best.price, compareAtPrice: regular, offer: best.offer };
 }
 
 /** "20% off" / "৳500 off" — for badges and API consumers. */

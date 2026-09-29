@@ -49,11 +49,30 @@ describe('campaign price maths', () => {
     expect(best?.price).toEqual(D(750));
   });
 
-  it('keeps the regular "was" price and falls back to the selling price', () => {
+  it('never stacks: the campaign comes off the regular price, not the sale price', () => {
+    // 10% product sale + 20% campaign = 20% off (800), not 28% off (720).
     expect(applyCampaign({ unitPrice: D(900), compareAtPrice: D(1000) }, [offer()])).toMatchObject({
-      unitPrice: D(720),
+      unitPrice: D(800),
       compareAtPrice: D(1000),
     });
+  });
+
+  it('keeps a product sale that beats the campaign, without the campaign badge', () => {
+    // 70% product sale vs 50% campaign: the shopper keeps 70% off.
+    expect(
+      applyCampaign({ unitPrice: D(300), compareAtPrice: D(1000) }, [
+        offer({ discountValue: D(50) }),
+      ]),
+    ).toEqual({ unitPrice: D(300), compareAtPrice: D(1000), offer: null });
+    // Equal prices: nothing to gain, the product sale stands.
+    expect(
+      applyCampaign({ unitPrice: D(500), compareAtPrice: D(1000) }, [
+        offer({ discountValue: D(50) }),
+      ]).offer,
+    ).toBeNull();
+  });
+
+  it('falls back to the selling price as the "was" price', () => {
     expect(applyCampaign({ unitPrice: D(900), compareAtPrice: null }, [offer()])).toMatchObject({
       compareAtPrice: D(900),
     });

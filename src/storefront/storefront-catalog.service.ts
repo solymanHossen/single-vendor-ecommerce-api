@@ -336,13 +336,15 @@ export class StorefrontCatalogService {
         SELECT ct.campaign_id, p.id FROM campaign_tree ct JOIN products p ON p.category_id = ct.category_id
       ),
       campaign_prices AS (
-        -- Mirrors campaignPrice(): whole taka, rounded down, at least 1; best price wins.
+        -- Mirrors applyCampaign(): the discount comes off the regular (base)
+        -- price, never on top of a product sale; whole taka, rounded down,
+        -- at least 1. The catalog then takes the lower of this and the sale price.
         SELECT m.product_id, MIN(GREATEST(FLOOR(
-          COALESCE(p.discount_price, p.base_price) - LEAST(
+          p.base_price - LEAST(
             CASE WHEN lc.discount_type = 'PERCENTAGE'
-              THEN COALESCE(p.discount_price, p.base_price) * lc.discount_value / 100
+              THEN p.base_price * lc.discount_value / 100
               ELSE lc.discount_value END,
-            COALESCE(lc.max_discount_amount, COALESCE(p.discount_price, p.base_price))
+            COALESCE(lc.max_discount_amount, p.base_price)
           )), 1)) AS price
         FROM campaign_members m
         JOIN live_campaigns lc ON lc.id = m.campaign_id
