@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+import { applyCampaign, type CampaignOffer } from '../campaigns/campaign-pricing';
 import { CreateWishlistItemDto } from './dto/create-wishlist-item.dto';
 import { WishlistItemEntity, WishlistProductSummaryEntity } from './entities/wishlist-item.entity';
 
@@ -13,6 +15,7 @@ const WISHLIST_ITEM_SELECT = {
       id: true,
       name: true,
       slug: true,
+      categoryId: true,
       basePrice: true,
       discountPrice: true,
       images: { select: { url: true }, orderBy: { isThumbnail: 'desc' }, take: 1 },
@@ -24,7 +27,10 @@ type WishlistItemRow = Prisma.WishlistGetPayload<{ select: typeof WISHLIST_ITEM_
 
 @Injectable()
 export class WishlistService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly campaignPricing: CampaignPricingService,
+  ) {}
 
   async findAll(userId: number): Promise<WishlistItemEntity[]> {
     const rows = await this.prisma.wishlist.findMany({
@@ -33,7 +39,8 @@ export class WishlistService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return rows.map((row) => this.toEntity(row));
+    const offers = await this.campaignPricing.offersFor(rows.map((row) => row.product));
+    return rows.map((row) => this.toEntity(row, offers.get(row.productId)));
   }
 
   async create(userId: number, dto: CreateWishlistItemDto): Promise<WishlistItemEntity> {
@@ -48,7 +55,8 @@ export class WishlistService {
       select: WISHLIST_ITEM_SELECT,
     });
 
-    return this.toEntity(wishlistItem);
+    const offers = await this.campaignPricing.offersFor([wishlistItem.product]);
+    return this.toEntity(wishlistItem, offers.get(wishlistItem.productId));
   }
 
   async remove(userId: number, productId: number): Promise<void> {
@@ -59,8 +67,9 @@ export class WishlistService {
     }
   }
 
-  private toEntity(wishlistItem: WishlistItemRow): WishlistItemEntity {
-    const unitPrice = wishlistItem.product.discountPrice ?? wishlistItem.product.basePrice;
+  private toEntity(wishlistItem: WishlistItemRow, offers?: CampaignOffer[]): WishlistItemEntity {
+    const regular = wishlistItem.product.discountPrice ?? wishlistItem.product.basePrice;
+    const { unitPrice } = applyCampaign({ unitPrice: regular, compareAtPrice: null }, offers);
 
     return new WishlistItemEntity({
       id: wishlistItem.id,

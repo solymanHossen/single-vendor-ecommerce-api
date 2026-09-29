@@ -10,6 +10,8 @@ import { OrderStatus, PaymentProvider, PaymentStatus, Prisma } from '@prisma/cli
 import { PrismaService } from '../database/prisma.service';
 import { CartsService } from '../carts/carts.service';
 import { linePrice, variantLabel } from '../carts/cart-pricing';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+import { applyCampaign } from '../campaigns/campaign-pricing';
 import type { CartEntity } from '../carts/entities/cart.entity';
 import type { CartIdentity } from '../carts/interfaces/cart-identity.interface';
 import { CouponsService } from '../coupons/coupons.service';
@@ -106,6 +108,7 @@ interface CheckoutLine {
 
 interface PricedLine extends CheckoutLine {
   unitPrice: Prisma.Decimal;
+  campaignId: number | null;
 }
 
 interface Totals {
@@ -172,6 +175,7 @@ export class OrdersService {
     private readonly cartsService: CartsService,
     private readonly couponsService: CouponsService,
     private readonly settingsService: SettingsService,
+    private readonly campaignPricing: CampaignPricingService,
   ) {}
 
   // ── Checkout ──────────────────────────────────────────────────────────────
@@ -325,6 +329,7 @@ export class OrdersService {
               variantId: line.variantId,
               quantity: line.quantity,
               unitPrice: line.unitPrice,
+              campaignId: line.campaignId,
             })),
           },
           payment: {
@@ -541,6 +546,7 @@ export class OrdersService {
           name: true,
           isPublished: true,
           stockQuantity: true,
+          categoryId: true,
           basePrice: true,
           discountPrice: true,
         },
@@ -552,6 +558,8 @@ export class OrdersService {
     ]);
     const productById = new Map(products.map((product) => [product.id, product]));
     const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    // Checkout re-prices from the clock: a sale that just ended no longer applies.
+    const offers = await this.campaignPricing.offersFor(products);
 
     // Validate every line up front: one complete error, not a partial write.
     const problems: string[] = [];
@@ -574,7 +582,12 @@ export class OrdersService {
         );
         continue;
       }
-      priced.push({ ...line, unitPrice: linePrice(product, variant).unitPrice });
+      const price = applyCampaign(linePrice(product, variant), offers.get(product.id));
+      priced.push({
+        ...line,
+        unitPrice: price.unitPrice,
+        campaignId: price.offer?.campaignId ?? null,
+      });
     }
 
     if (problems.length > 0) throw new ConflictException(problems);

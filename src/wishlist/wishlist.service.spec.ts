@@ -2,6 +2,13 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { WishlistService } from './wishlist.service';
 import { PrismaService } from '../database/prisma.service';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+
+/** No live campaigns: regular prices only. */
+const noCampaigns = {
+  offersFor: () => Promise.resolve(new Map()),
+  productIdsFor: () => Promise.resolve([]),
+};
 
 const mockPrisma = {
   wishlist: {
@@ -30,7 +37,11 @@ describe('WishlistService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [WishlistService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        WishlistService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: CampaignPricingService, useValue: noCampaigns },
+      ],
     }).compile();
 
     service = module.get<WishlistService>(WishlistService);

@@ -19,10 +19,32 @@ interface CartItemEntityInput {
   sku: string;
   unitPrice: Prisma.Decimal;
   compareAtPrice: Prisma.Decimal | null;
+  campaign: CartLineCampaignEntity | null;
   quantity: number;
   subtotal: Prisma.Decimal;
   availableStock: number;
   issue: CartLineIssue | null;
+}
+
+export class CartLineCampaignEntity {
+  @ApiProperty({ example: 7 })
+  id: number;
+
+  @ApiProperty({ example: 'Eid Mega Sale' })
+  name: string;
+
+  @ApiProperty({ example: 'eid-mega-sale' })
+  slug: string;
+
+  @ApiProperty()
+  endsAt: Date;
+
+  constructor(partial: CartLineCampaignEntity) {
+    this.id = partial.id;
+    this.name = partial.name;
+    this.slug = partial.slug;
+    this.endsAt = partial.endsAt;
+  }
 }
 
 export class CartItemEntity {
@@ -61,6 +83,13 @@ export class CartItemEntity {
   })
   compareAtPrice: Prisma.Decimal | null;
 
+  @ApiProperty({
+    type: () => CartLineCampaignEntity,
+    nullable: true,
+    description: 'Sale campaign pricing this line',
+  })
+  campaign: CartLineCampaignEntity | null;
+
   @ApiProperty({ example: 2 })
   quantity: number;
 
@@ -84,6 +113,7 @@ export class CartItemEntity {
     this.sku = partial.sku;
     this.unitPrice = partial.unitPrice;
     this.compareAtPrice = partial.compareAtPrice;
+    this.campaign = partial.campaign;
     this.quantity = partial.quantity;
     this.subtotal = partial.subtotal;
     this.availableStock = partial.availableStock;

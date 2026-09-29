@@ -65,6 +65,11 @@ export const PERMISSION_GROUPS = [
         description: 'Create, edit and retire discount codes.',
       },
       {
+        key: 'campaigns.manage',
+        label: 'Manage sale campaigns',
+        description: 'Run time-limited sales with their own page, prices and countdown.',
+      },
+      {
         key: 'banners.manage',
         label: 'Manage homepage banners',
         description: 'Arrange and publish the homepage hero banners.',
@@ -150,6 +155,12 @@ export const DEFAULT_STAFF_ROLES: ReadonlyArray<{
   {
     name: 'Catalog editor',
     description: 'Keeps products, coupons and banners up to date.',
-    permissions: ['catalog.manage', 'coupons.manage', 'banners.manage', 'reviews.moderate'],
+    permissions: [
+      'catalog.manage',
+      'coupons.manage',
+      'campaigns.manage',
+      'banners.manage',
+      'reviews.moderate',
+    ],
   },
 ];

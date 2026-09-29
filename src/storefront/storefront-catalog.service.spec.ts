@@ -4,6 +4,13 @@ import { Prisma } from '@prisma/client';
 import { StorefrontCatalogService } from './storefront-catalog.service';
 import { PrismaService } from '../database/prisma.service';
 import type { CatalogQueryDto } from './dto/catalog-query.dto';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+
+/** No live campaigns: regular prices only. */
+const noCampaigns = {
+  offersFor: () => Promise.resolve(new Map()),
+  productIdsFor: () => Promise.resolve([]),
+};
 
 const mockPrisma = {
   category: { findMany: jest.fn() },
@@ -69,7 +76,11 @@ describe('StorefrontCatalogService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [StorefrontCatalogService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        StorefrontCatalogService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: CampaignPricingService, useValue: noCampaigns },
+      ],
     }).compile();
 
     service = module.get<StorefrontCatalogService>(StorefrontCatalogService);

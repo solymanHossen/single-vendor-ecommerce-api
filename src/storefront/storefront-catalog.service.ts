@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+import { applyCampaign, offerLabel, type CampaignOffer } from '../campaigns/campaign-pricing';
+import { linePrice } from '../carts/cart-pricing';
 import {
   BEST_SELLER_WINDOW_DAYS,
   NEW_ARRIVAL_WINDOW_DAYS,
@@ -18,6 +21,7 @@ import {
   CatalogPageMetaEntity,
   CatalogPriceRangeEntity,
   CatalogProductCardEntity,
+  ProductCampaignEntity,
   ProductDetailEntity,
   ProductDetailImageEntity,
   ProductDetailVariantEntity,
@@ -48,6 +52,7 @@ const CARD_SELECT = {
   id: true,
   name: true,
   slug: true,
+  categoryId: true,
   basePrice: true,
   discountPrice: true,
   stockQuantity: true,
@@ -65,6 +70,7 @@ const DETAIL_SELECT = {
   id: true,
   name: true,
   slug: true,
+  categoryId: true,
   description: true,
   basePrice: true,
   discountPrice: true,
@@ -128,12 +134,24 @@ interface CatalogFilters {
   maxPrice?: number;
   inStock?: boolean;
   excludeIds?: number[];
+  /** Only these products (e.g. a campaign's). */
+  includeIds?: number[];
 }
 
 interface RankedRow {
   id: number;
   avg_rating: number;
   review_count: number;
+}
+
+function toProductCampaign(offer: CampaignOffer): ProductCampaignEntity {
+  return new ProductCampaignEntity({
+    id: offer.campaignId,
+    name: offer.name,
+    slug: offer.slug,
+    label: offerLabel(offer),
+    endsAt: offer.endsAt.toISOString(),
+  });
 }
 
 /** Escapes LIKE wildcards so a shopper typing "50%" searches for a literal "%". */
@@ -147,11 +165,18 @@ function roundRating(value: number): number {
 
 @Injectable()
 export class StorefrontCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly campaignPricing: CampaignPricingService,
+  ) {}
 
   // ── Listing ────────────────────────────────────────────────────────────────
 
-  async listProducts(query: CatalogQueryDto): Promise<CatalogPageEntity> {
+  /** `scope.includeIds` limits the listing to a set of products (a campaign's). */
+  async listProducts(
+    query: CatalogQueryDto,
+    scope: { includeIds?: number[] } = {},
+  ): Promise<CatalogPageEntity> {
     const categories = await this.loadCategories();
 
     let applied: CatalogAppliedCategoryEntity | null = null;
@@ -172,6 +197,7 @@ export class StorefrontCatalogService {
       minPrice: query.minPrice,
       maxPrice: query.maxPrice,
       inStock: query.inStock,
+      includeIds: scope.includeIds,
     };
 
     // Facets deliberately ignore their own dimension (category counts are
@@ -231,6 +257,8 @@ export class StorefrontCatalogService {
       }),
       this.loadCategories(),
     ]);
+    const offers = (await this.campaignPricing.offersFor([product])).get(product.id);
+    const productPrice = applyCampaign(linePrice(product, null), offers);
 
     return new ProductDetailEntity({
       id: product.id,
@@ -238,7 +266,9 @@ export class StorefrontCatalogService {
       slug: product.slug,
       description: product.description,
       basePrice: product.basePrice.toString(),
-      discountPrice: product.discountPrice?.toString() ?? null,
+      discountPrice: productPrice.unitPrice.lessThan(product.basePrice)
+        ? productPrice.unitPrice.toString()
+        : null,
       sku: product.sku,
       stockQuantity: product.stockQuantity,
       metaTitle: product.metaTitle,
@@ -254,19 +284,22 @@ export class StorefrontCatalogService {
       }),
       images: product.images.map((image) => new ProductDetailImageEntity(image)),
       optionGroups: this.buildOptionGroups(product),
-      variants: product.variants.map(
-        (variant) =>
-          new ProductDetailVariantEntity({
-            id: variant.id,
-            sku: variant.sku,
-            price: variant.price.toString(),
-            stockQuantity: variant.stockQuantity,
-            imageUrl: variant.imageUrl,
-            optionIds: variant.options.map((option) => option.attributeOption.id),
-          }),
-      ),
+      variants: product.variants.map((variant) => {
+        // Exactly what the cart will charge for this option.
+        const price = applyCampaign(linePrice(product, variant), offers);
+        return new ProductDetailVariantEntity({
+          id: variant.id,
+          sku: variant.sku,
+          price: price.unitPrice.toString(),
+          compareAtPrice: price.compareAtPrice?.toString() ?? null,
+          stockQuantity: variant.stockQuantity,
+          imageUrl: variant.imageUrl,
+          optionIds: variant.options.map((option) => option.attributeOption.id),
+        });
+      }),
       rating: this.buildRatingSummary(ratingGroups),
       recentlySold: sold._sum.quantity ?? 0,
+      campaign: productPrice.offer ? toProductCampaign(productPrice.offer) : null,
       related: await this.loadRelated(product, categories),
       createdAt: product.createdAt.toISOString(),
     });
@@ -282,8 +315,41 @@ export class StorefrontCatalogService {
    */
   private catalogCte(): Prisma.Sql {
     const bestSellerSince = new Date(Date.now() - BEST_SELLER_WINDOW_DAYS * MS_PER_DAY);
+    const now = new Date();
     return Prisma.sql`
-      WITH sales AS (
+      WITH RECURSIVE live_campaigns AS (
+        SELECT id, discount_type, discount_value, max_discount_amount
+        FROM campaigns
+        WHERE is_active = true AND starts_at <= ${now} AND ends_at > ${now}
+      ),
+      campaign_tree AS (
+        SELECT cc.campaign_id, cc.category_id
+        FROM campaign_categories cc JOIN live_campaigns lc ON lc.id = cc.campaign_id
+        UNION
+        SELECT ct.campaign_id, c.id
+        FROM categories c JOIN campaign_tree ct ON c.parent_id = ct.category_id
+      ),
+      campaign_members AS (
+        SELECT cp.campaign_id, cp.product_id
+        FROM campaign_products cp JOIN live_campaigns lc ON lc.id = cp.campaign_id
+        UNION
+        SELECT ct.campaign_id, p.id FROM campaign_tree ct JOIN products p ON p.category_id = ct.category_id
+      ),
+      campaign_prices AS (
+        -- Mirrors campaignPrice(): whole taka, rounded down, at least 1; best price wins.
+        SELECT m.product_id, MIN(GREATEST(FLOOR(
+          COALESCE(p.discount_price, p.base_price) - LEAST(
+            CASE WHEN lc.discount_type = 'PERCENTAGE'
+              THEN COALESCE(p.discount_price, p.base_price) * lc.discount_value / 100
+              ELSE lc.discount_value END,
+            COALESCE(lc.max_discount_amount, COALESCE(p.discount_price, p.base_price))
+          )), 1)) AS price
+        FROM campaign_members m
+        JOIN live_campaigns lc ON lc.id = m.campaign_id
+        JOIN products p ON p.id = m.product_id
+        GROUP BY m.product_id
+      ),
+      sales AS (
         SELECT oi.product_id, SUM(oi.quantity)::int AS units_sold
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
@@ -305,7 +371,8 @@ export class StorefrontCatalogService {
           p.created_at,
           p.discount_price,
           c.name AS category_name,
-          COALESCE(p.discount_price, p.base_price) AS effective_price,
+          LEAST(COALESCE(p.discount_price, p.base_price), COALESCE(cpr.price, COALESCE(p.discount_price, p.base_price))) AS effective_price,
+          (p.discount_price IS NOT NULL OR cpr.price < COALESCE(p.discount_price, p.base_price)) AS on_sale,
           (p.stock_quantity > 0) AS in_stock,
           COALESCE(s.units_sold, 0) AS units_sold,
           COALESCE(r.avg_rating, 0)::float8 AS avg_rating,
@@ -314,6 +381,7 @@ export class StorefrontCatalogService {
         JOIN categories c ON c.id = p.category_id
         LEFT JOIN sales s ON s.product_id = p.id
         LEFT JOIN ratings r ON r.product_id = p.id
+        LEFT JOIN campaign_prices cpr ON cpr.product_id = p.id
         WHERE p.is_published = true
       )
     `;
@@ -326,6 +394,13 @@ export class StorefrontCatalogService {
       conditions.push(
         filters.categoryIds.length > 0
           ? Prisma.sql`category_id IN (${Prisma.join(filters.categoryIds)})`
+          : Prisma.sql`FALSE`,
+      );
+    }
+    if (filters.includeIds !== undefined) {
+      conditions.push(
+        filters.includeIds.length > 0
+          ? Prisma.sql`id IN (${Prisma.join(filters.includeIds)})`
           : Prisma.sql`FALSE`,
       );
     }
@@ -362,7 +437,7 @@ export class StorefrontCatalogService {
       case 'new-arrivals':
         return Prisma.sql`created_at >= ${new Date(Date.now() - NEW_ARRIVAL_WINDOW_DAYS * MS_PER_DAY)}`;
       case 'on-sale':
-        return Prisma.sql`discount_price IS NOT NULL`;
+        return Prisma.sql`on_sale`;
       case 'best-sellers':
         return Prisma.sql`units_sold > 0`;
       case 'top-rated':
@@ -434,14 +509,21 @@ export class StorefrontCatalogService {
     });
     const rowById = new Map(rows.map((row) => [row.id, row]));
     const newSince = Date.now() - NEW_ARRIVAL_WINDOW_DAYS * MS_PER_DAY;
+    const offers = await this.campaignPricing.offersFor(rows);
 
     return ranked.flatMap((rank) => {
       const row = rowById.get(rank.id);
-      return row ? [this.toCard(row, rank, newSince)] : [];
+      return row ? [this.toCard(row, rank, newSince, offers.get(row.id))] : [];
     });
   }
 
-  private toCard(row: CardRow, rank: RankedRow, newSince: number): CatalogProductCardEntity {
+  private toCard(
+    row: CardRow,
+    rank: RankedRow,
+    newSince: number,
+    offers: CampaignOffer[] | undefined,
+  ): CatalogProductCardEntity {
+    const price = applyCampaign(linePrice(row, null), offers);
     return new CatalogProductCardEntity({
       id: row.id,
       name: row.name,
@@ -449,7 +531,8 @@ export class StorefrontCatalogService {
       thumbnailUrl: row.images[0]?.url ?? null,
       hoverImageUrl: row.images[1]?.url ?? null,
       basePrice: row.basePrice.toString(),
-      discountPrice: row.discountPrice?.toString() ?? null,
+      // The sale or campaign price, whichever the shopper actually pays.
+      discountPrice: price.unitPrice.lessThan(row.basePrice) ? price.unitPrice.toString() : null,
       stockQuantity: row.stockQuantity,
       categoryName: row.category.name,
       categorySlug: row.category.slug,
@@ -457,6 +540,7 @@ export class StorefrontCatalogService {
       reviewCount: Number(rank.review_count),
       variantCount: row._count.variants,
       isNew: row.createdAt.getTime() >= newSince,
+      campaign: price.offer ? toProductCampaign(price.offer) : null,
     });
   }
 

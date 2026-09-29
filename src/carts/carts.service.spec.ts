@@ -7,6 +7,13 @@ import { RedisService } from '../common/redis/redis.service';
 import { MAX_CART_ITEM_QUANTITY, cartLineKey, parseCartLineKey } from './carts.constants';
 import { linePrice } from './cart-pricing';
 import type { CartIdentity } from './interfaces/cart-identity.interface';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+
+/** No live campaigns: regular prices only. */
+const noCampaigns = {
+  offersFor: () => Promise.resolve(new Map()),
+  productIdsFor: () => Promise.resolve([]),
+};
 
 const mockRedisClient = {
   hgetall: jest.fn(),
@@ -103,6 +110,7 @@ describe('CartsService', () => {
       providers: [
         CartsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: CampaignPricingService, useValue: noCampaigns },
         { provide: RedisService, useValue: { client: mockRedisClient } },
       ],
     }).compile();

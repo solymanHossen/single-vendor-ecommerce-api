@@ -35,8 +35,8 @@ model User {
   reviewVotes         ReviewVote[]
   reviewReplies       ReviewReply[]
   returnRequests      ReturnRequest[]
-  tickets             Ticket[]        @relation("TicketCustomer")
-  assignedTickets     Ticket[]        @relation("TicketAssignee")
+  tickets             Ticket[]             @relation("TicketCustomer")
+  assignedTickets     Ticket[]             @relation("TicketAssignee")
   ticketMessages      TicketMessage[]
   auditLogs           AuditLog[]
 
@@ -224,44 +224,46 @@ enum Role {
 }
 
 model Category {
-  id        Int        @id @default(autoincrement())
+  id        Int                @id @default(autoincrement())
   name      String
-  slug      String     @unique
-  parentId  Int?       @map("parent_id")
-  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children  Category[] @relation("CategoryHierarchy")
-  iconUrl   String?    @map("icon_url")
-  metaTitle String?    @map("meta_title")
-  metaDesc  String?    @map("meta_desc")
+  slug      String             @unique
+  parentId  Int?               @map("parent_id")
+  parent    Category?          @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children  Category[]         @relation("CategoryHierarchy")
+  iconUrl   String?            @map("icon_url")
+  metaTitle String?            @map("meta_title")
+  metaDesc  String?            @map("meta_desc")
   products  Product[]
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+  campaigns CampaignCategory[]
 
   @@index([parentId])
   @@map("categories")
 }
 
 model Product {
-  id            Int              @id @default(autoincrement())
-  categoryId    Int              @map("category_id")
-  category      Category         @relation(fields: [categoryId], references: [id])
+  id            Int               @id @default(autoincrement())
+  categoryId    Int               @map("category_id")
+  category      Category          @relation(fields: [categoryId], references: [id])
   name          String
-  slug          String           @unique
-  description   String           @db.Text
-  basePrice     Decimal          @map("base_price") @db.Decimal(12, 2)
-  discountPrice Decimal?         @map("discount_price") @db.Decimal(12, 2)
-  sku           String           @unique
-  stockQuantity Int              @default(0) @map("stock_quantity")
-  isPublished   Boolean          @default(false) @map("is_published")
-  metaTitle     String?          @map("meta_title")
-  metaDesc      String?          @map("meta_desc")
+  slug          String            @unique
+  description   String            @db.Text
+  basePrice     Decimal           @map("base_price") @db.Decimal(12, 2)
+  discountPrice Decimal?          @map("discount_price") @db.Decimal(12, 2)
+  sku           String            @unique
+  stockQuantity Int               @default(0) @map("stock_quantity")
+  isPublished   Boolean           @default(false) @map("is_published")
+  metaTitle     String?           @map("meta_title")
+  metaDesc      String?           @map("meta_desc")
   images        ProductImage[]
   variants      ProductVariant[]
   wishlists     Wishlist[]
   orderItems    OrderItem[]
   reviews       Review[]
-  createdAt     DateTime         @default(now()) @map("created_at")
-  updatedAt     DateTime         @updatedAt @map("updated_at")
+  campaigns     CampaignProduct[]
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   @@index([categoryId])
   @@map("products")
@@ -391,18 +393,21 @@ model Order {
 }
 
 model OrderItem {
-  id        Int             @id @default(autoincrement())
-  orderId   Int             @map("order_id")
-  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId Int             @map("product_id")
-  product   Product         @relation(fields: [productId], references: [id])
-  variantId Int?            @map("variant_id")
+  id         Int             @id @default(autoincrement())
+  orderId    Int             @map("order_id")
+  order      Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  Int             @map("product_id")
+  product    Product         @relation(fields: [productId], references: [id])
+  variantId  Int?            @map("variant_id")
   // Historical reference only: unlike VariantOption→AttributeOption (restrict),
   // a discontinued variant should not block its own deletion nor the order's
   // integrity — the frozen unitPrice below already preserves what was paid.
-  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  quantity  Int
-  unitPrice Decimal         @map("unit_price") @db.Decimal(12, 2)
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  /// The sale campaign that priced this line, for campaign reporting.
+  campaignId Int?            @map("campaign_id")
+  campaign   Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  quantity   Int
+  unitPrice  Decimal         @map("unit_price") @db.Decimal(12, 2)
 
   @@index([orderId])
   @@index([productId])
@@ -467,22 +472,22 @@ model Payment {
 }
 
 model Review {
-  id         Int           @id @default(autoincrement())
-  userId     Int           @map("user_id")
+  id           Int           @id @default(autoincrement())
+  userId       Int           @map("user_id")
   // Required, like Ticket.user below — the app's real account-removal
   // mechanism is User.deletedAt (soft delete), so leaving this at the
   // restrict-by-default posture (no onDelete override) never bites in
   // practice, and a review authored by a specific customer only makes
   // sense with that customer identified.
-  user       User          @relation(fields: [userId], references: [id])
-  productId  Int           @map("product_id")
+  user         User          @relation(fields: [userId], references: [id])
+  productId    Int           @map("product_id")
   // Cascades: a review is fundamentally about the product it reviews and
   // has no purpose once that product is gone (mirrors ProductImage/Wishlist).
-  product    Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  orderId    Int?          @map("order_id")
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderId      Int?          @map("order_id")
   // Optional "verified purchase" reference — unlinked (not deleted) if the
   // order is ever removed, since the review's content still stands on its own.
-  order      Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  order        Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
   rating       Int
   title        String?       @db.VarChar(120)
   comment      String?       @db.Text
@@ -608,7 +613,7 @@ enum TicketPriority {
 }
 
 model Ticket {
-  id        Int             @id @default(autoincrement())
+  id               Int             @id @default(autoincrement())
   userId           Int             @map("user_id")
   user             User            @relation("TicketCustomer", fields: [userId], references: [id])
   orderId          Int?            @map("order_id")
@@ -642,14 +647,14 @@ model Ticket {
 }
 
 model TicketMessage {
-  id        Int      @id @default(autoincrement())
-  ticketId  Int      @map("ticket_id")
+  id          Int               @id @default(autoincrement())
+  ticketId    Int               @map("ticket_id")
   // Cascades: a message has no independent existence outside its ticket's thread.
-  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket      Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   // The ticket's owner, a staff member, or null for system events
   // (e.g. "closed automatically after 7 days").
-  senderId  Int?     @map("sender_id")
-  sender    User?    @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  senderId    Int?              @map("sender_id")
+  sender      User?             @relation(fields: [senderId], references: [id], onDelete: SetNull)
   kind        TicketMessageKind @default(REPLY)
   /// Hidden from the customer: staff notes and internal timeline events.
   isInternal  Boolean           @default(false) @map("is_internal")
@@ -661,4 +666,60 @@ model TicketMessage {
   @@index([ticketId])
   @@index([senderId])
   @@map("ticket_messages")
+}
+
+/// A time-limited sale (e.g. "Eid Mega Sale"): a discount on chosen products
+/// and/or whole categories, with its own landing page and countdown.
+/// Status is derived — draft (isActive false), scheduled, live or ended.
+model Campaign {
+  id                Int                @id @default(autoincrement())
+  name              String             @db.VarChar(80)
+  slug              String             @unique @db.VarChar(80)
+  tagline           String?            @db.VarChar(160)
+  description       String?            @db.Text
+  /// PERCENTAGE or FIXED_AMOUNT (per unit). FREE_SHIPPING isn't used here.
+  discountType      DiscountType       @map("discount_type")
+  discountValue     Decimal            @map("discount_value") @db.Decimal(12, 2)
+  /// Per-unit cap for a percentage discount.
+  maxDiscountAmount Decimal?           @map("max_discount_amount") @db.Decimal(12, 2)
+  startsAt          DateTime           @map("starts_at")
+  endsAt            DateTime           @map("ends_at")
+  /// Published. A draft never prices anything or shows publicly.
+  isActive          Boolean            @default(false) @map("is_active")
+  /// Promoted on the homepage while live.
+  isFeatured        Boolean            @default(false) @map("is_featured")
+  bannerUrl         String?            @map("banner_url")
+  /// Hex colour for the landing page hero, e.g. "#0f766e".
+  accentColor       String?            @map("accent_color") @db.VarChar(7)
+  products          CampaignProduct[]
+  categories        CampaignCategory[]
+  orderItems        OrderItem[]
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("campaigns")
+}
+
+model CampaignProduct {
+  campaignId Int      @map("campaign_id")
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  productId  Int      @map("product_id")
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, productId])
+  @@index([productId])
+  @@map("campaign_products")
+}
+
+/// Every product in the category (and its sub-categories) joins the sale.
+model CampaignCategory {
+  campaignId Int      @map("campaign_id")
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  categoryId Int      @map("category_id")
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, categoryId])
+  @@index([categoryId])
+  @@map("campaign_categories")
 }

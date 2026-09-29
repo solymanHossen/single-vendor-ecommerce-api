@@ -1,5 +1,31 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/** The live sale campaign pricing a product (badge, countdown, landing link). */
+export class ProductCampaignEntity {
+  @ApiProperty({ example: 7 })
+  id: number;
+
+  @ApiProperty({ example: 'Eid Mega Sale' })
+  name: string;
+
+  @ApiProperty({ example: 'eid-mega-sale' })
+  slug: string;
+
+  @ApiProperty({ example: '20% off' })
+  label: string;
+
+  @ApiProperty({ description: 'ISO date the sale ends' })
+  endsAt: string;
+
+  constructor(partial: ProductCampaignEntity) {
+    this.id = partial.id;
+    this.name = partial.name;
+    this.slug = partial.slug;
+    this.label = partial.label;
+    this.endsAt = partial.endsAt;
+  }
+}
+
 // Shopper-facing catalog shapes. Money is serialized as decimal strings (the
 // API-wide convention for Prisma.Decimal), dates as ISO strings.
 
@@ -46,6 +72,13 @@ export class CatalogProductCardEntity {
   @ApiProperty({ example: true, description: 'Added within the New Arrivals window' })
   isNew: boolean;
 
+  @ApiProperty({
+    type: () => ProductCampaignEntity,
+    nullable: true,
+    description: 'Live sale pricing this card',
+  })
+  campaign: ProductCampaignEntity | null;
+
   constructor(partial: CatalogProductCardEntity) {
     this.id = partial.id;
     this.name = partial.name;
@@ -61,6 +94,7 @@ export class CatalogProductCardEntity {
     this.reviewCount = partial.reviewCount;
     this.variantCount = partial.variantCount;
     this.isNew = partial.isNew;
+    this.campaign = partial.campaign;
   }
 }
 
@@ -243,8 +277,14 @@ export class ProductDetailVariantEntity {
   @ApiProperty({ example: 'ELC-PHN-001-BLAT-256GB' })
   sku: string;
 
-  @ApiProperty({ example: '169999' })
+  @ApiProperty({
+    example: '169999',
+    description: 'What the shopper pays (sale and campaign applied)',
+  })
   price: string;
+
+  @ApiProperty({ nullable: true, example: '184999', description: '"Was" price when discounted' })
+  compareAtPrice: string | null;
 
   @ApiProperty({ example: 16 })
   stockQuantity: number;
@@ -259,6 +299,7 @@ export class ProductDetailVariantEntity {
     this.id = partial.id;
     this.sku = partial.sku;
     this.price = partial.price;
+    this.compareAtPrice = partial.compareAtPrice;
     this.stockQuantity = partial.stockQuantity;
     this.imageUrl = partial.imageUrl;
     this.optionIds = partial.optionIds;
@@ -334,6 +375,9 @@ export class ProductDetailEntity {
   @ApiProperty({ example: 37, description: 'Units sold in the recent sales window' })
   recentlySold: number;
 
+  @ApiProperty({ type: () => ProductCampaignEntity, nullable: true })
+  campaign: ProductCampaignEntity | null;
+
   @ApiProperty({ type: CatalogProductCardEntity, isArray: true })
   related: CatalogProductCardEntity[];
 
@@ -357,6 +401,7 @@ export class ProductDetailEntity {
     this.variants = partial.variants;
     this.rating = partial.rating;
     this.recentlySold = partial.recentlySold;
+    this.campaign = partial.campaign;
     this.related = partial.related;
     this.createdAt = partial.createdAt;
   }

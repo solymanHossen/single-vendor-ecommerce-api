@@ -8,6 +8,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { linePrice, variantLabel } from './cart-pricing';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+import { applyCampaign, type CampaignOffer } from '../campaigns/campaign-pricing';
 import {
   CART_TTL_SECONDS,
   MAX_CART_ITEM_QUANTITY,
@@ -16,7 +18,12 @@ import {
 } from './carts.constants';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
-import { CartEntity, CartItemEntity, type CartLineIssue } from './entities/cart.entity';
+import {
+  CartEntity,
+  CartItemEntity,
+  type CartLineIssue,
+  CartLineCampaignEntity,
+} from './entities/cart.entity';
 import { CartIdentity } from './interfaces/cart-identity.interface';
 
 const CART_PRODUCT_SELECT = {
@@ -26,6 +33,7 @@ const CART_PRODUCT_SELECT = {
   sku: true,
   isPublished: true,
   stockQuantity: true,
+  categoryId: true,
   basePrice: true,
   discountPrice: true,
   images: {
@@ -61,6 +69,7 @@ export class CartsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly campaignPricing: CampaignPricingService,
   ) {}
 
   async getCart(identity: CartIdentity): Promise<CartEntity> {
@@ -99,6 +108,7 @@ export class CartsService {
     ]);
     const productById = new Map(products.map((product) => [product.id, product]));
     const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const offers = await this.campaignPricing.offersFor(products);
 
     // Self-heal: drop lines whose product/variant was deleted (or no longer
     // matches) so the hash never returns phantom items.
@@ -111,7 +121,7 @@ export class CartsService {
         stale.push(line.field);
         continue;
       }
-      items.push(this.toItemEntity(product, variant, line.quantity));
+      items.push(this.toItemEntity(product, variant, line.quantity, offers.get(product.id)));
     }
     if (stale.length > 0) await this.redis.client.hdel(key, ...stale);
 
@@ -259,8 +269,9 @@ export class CartsService {
     product: CartProductRow,
     variant: CartVariantRow | null,
     quantity: number,
+    offers: CampaignOffer[] | undefined,
   ): CartItemEntity {
-    const { unitPrice, compareAtPrice } = linePrice(product, variant);
+    const { unitPrice, compareAtPrice, offer } = applyCampaign(linePrice(product, variant), offers);
     const availableStock = variant ? variant.stockQuantity : product.stockQuantity;
 
     let issue: CartLineIssue | null = null;
@@ -283,6 +294,14 @@ export class CartsService {
       sku: variant?.sku ?? product.sku,
       unitPrice,
       compareAtPrice,
+      campaign: offer
+        ? new CartLineCampaignEntity({
+            id: offer.campaignId,
+            name: offer.name,
+            slug: offer.slug,
+            endsAt: offer.endsAt,
+          })
+        : null,
       quantity,
       subtotal: unitPrice.times(quantity),
       availableStock,

@@ -19,6 +19,8 @@ import { CartsModule } from './carts/carts.module';
 import { WishlistModule } from './wishlist/wishlist.module';
 import { OrdersModule } from './orders/orders.module';
 import { CouponsModule } from './coupons/coupons.module';
+import { CampaignPricingModule } from './campaigns/campaign-pricing.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ReturnsModule } from './returns/returns.module';
@@ -113,6 +115,8 @@ import {
     WishlistModule,
     OrdersModule,
     CouponsModule,
+    CampaignPricingModule,
+    CampaignsModule,
     PaymentsModule,
     ReviewsModule,
     ReturnsModule,

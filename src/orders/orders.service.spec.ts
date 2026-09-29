@@ -9,6 +9,13 @@ import type { AuthUser } from '../auth/interfaces/auth.interfaces';
 import { ORDER_TRANSITIONS } from './orders.constants';
 import { SettingsService } from '../settings/settings.service';
 import { ALL_PERMISSIONS } from '../access/permissions';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
+
+/** No live campaigns: regular prices only. */
+const noCampaigns = {
+  offersFor: () => Promise.resolve(new Map()),
+  productIdsFor: () => Promise.resolve([]),
+};
 
 const FREE_SHIPPING_THRESHOLD = 10_000;
 const mockSettingsService = {
@@ -159,6 +166,7 @@ describe('OrdersService', () => {
       providers: [
         OrdersService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: CampaignPricingService, useValue: noCampaigns },
         { provide: CartsService, useValue: mockCartsService },
         { provide: CouponsService, useValue: mockCouponsService },
         { provide: SettingsService, useValue: mockSettingsService },
@@ -315,7 +323,7 @@ describe('OrdersService', () => {
       expect(created.data.note).toBe('Call first');
       expect(created.data.payment).toEqual({ create: { provider: 'COD', amount: D(2460) } });
       expect(created.data.items.create).toEqual([
-        { productId: 101, variantId: 204, quantity: 2, unitPrice: D(1200) },
+        { productId: 101, variantId: 204, quantity: 2, unitPrice: D(1200), campaignId: null },
       ]);
       expect(created.data.shippingAddress).toEqual(
         expect.objectContaining({ recipientName: 'Nusrat Jahan', phone: '01711000000' }),
