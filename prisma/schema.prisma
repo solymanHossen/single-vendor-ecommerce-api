@@ -32,6 +32,7 @@ model User {
   wishlists           Wishlist[]
   orders              Order[]
   reviews             Review[]
+  reviewVotes         ReviewVote[]
   reviewReplies       ReviewReply[]
   returnRequests      ReturnRequest[]
   tickets             Ticket[]        @relation("TicketCustomer")
@@ -482,21 +483,44 @@ model Review {
   // Optional "verified purchase" reference — unlinked (not deleted) if the
   // order is ever removed, since the review's content still stands on its own.
   order      Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  rating     Int
-  comment    String?       @db.Text
-  isApproved Boolean       @default(false) @map("is_approved")
-  images     ReviewImage[]
-  reply      ReviewReply?
-  createdAt  DateTime      @default(now()) @map("created_at")
-  updatedAt  DateTime      @updatedAt @map("updated_at")
+  rating       Int
+  title        String?       @db.VarChar(120)
+  comment      String?       @db.Text
+  /// What they bought, frozen at review time (e.g. "Colour: Black · 128 GB").
+  variantLabel String?       @map("variant_label")
+  /// Published on the product page. Verified reviews publish straight away.
+  isApproved   Boolean       @default(false) @map("is_approved")
+  /// Set when a moderator hides it (not approved + hiddenAt = hidden; no hiddenAt = pending).
+  hiddenAt     DateTime?     @map("hidden_at")
+  helpfulCount Int           @default(0) @map("helpful_count")
+  /// Set when the author edits (votes and moderation touch updatedAt too).
+  editedAt     DateTime?     @map("edited_at")
+  images       ReviewImage[]
+  votes        ReviewVote[]
+  reply        ReviewReply?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
   // One review per customer per product — resubmission is rejected (409)
   // rather than silently allowing unlimited duplicate reviews.
   @@unique([userId, productId])
   @@index([userId])
-  @@index([productId])
+  @@index([productId, isApproved, createdAt])
   @@index([orderId])
   @@map("reviews")
+}
+
+/// "Was this helpful?" — one vote per shopper per review.
+model ReviewVote {
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewId  Int      @map("review_id")
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, reviewId])
+  @@index([reviewId])
+  @@map("review_votes")
 }
 
 model ReviewImage {

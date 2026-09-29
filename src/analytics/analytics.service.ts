@@ -318,7 +318,7 @@ export class AnalyticsService {
         where: { isApproved: true },
         _count: { _all: true },
       }),
-      this.prisma.review.count({ where: { isApproved: false } }),
+      this.prisma.review.count({ where: { isApproved: false, hiddenAt: null } }),
       this.prisma.review.findMany({
         select: {
           id: true,
@@ -379,7 +379,7 @@ export class AnalyticsService {
         // The support queue: the customer spoke last and it isn't resolved.
         where: { awaitingStaff: true },
       }),
-      this.prisma.review.count({ where: { isApproved: false } }),
+      this.prisma.review.count({ where: { isApproved: false, hiddenAt: null } }),
     ]);
     return new OperationsEntity({
       awaitingFulfilment,
